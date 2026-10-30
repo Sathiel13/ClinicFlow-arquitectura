@@ -38,17 +38,26 @@ tar -czf "$DEST/clinicflow-$STAMP.tar.gz" -C "$WORK" .
 chmod 600 "$DEST/clinicflow-$STAMP.tar.gz"
 find "$DEST" -name 'clinicflow-*.tar.gz' -mtime +14 -delete
 
-# 5) Workflows a GitHub (repo PRIVADO; los workflows aún tienen llaves escritas en nodos)
-REPO=$BASE/workflows-repo
+# 5) Workflows activos a GitHub, SIEMPRE limpios de secretos y teléfonos
+#    (requiere /opt/clinicflow/repo clonado con una deploy key con permiso de escritura)
+REPO=$BASE/repo
 if [ -d "$REPO/.git" ]; then
-  mkdir -p "$REPO/workflows"
-  rm -f "$REPO"/workflows/*.json
-  cp "$WORK"/workflows/*.json "$REPO/workflows/"
+  mkdir -p "$WORK/activos"
+  python3 - "$WORK/workflows" "$WORK/activos" <<'PY'
+import json, glob, os, shutil, sys
+for f in glob.glob(os.path.join(sys.argv[1], "*.json")):
+    if json.load(open(f, encoding="utf-8")).get("active"):
+        shutil.copy(f, sys.argv[2])
+PY
   cd "$REPO"
-  git add -A
+  git pull -q --rebase origin main
+  rm -rf n8n/workflows
+  # Si el limpiador detecta una posible fuga sale con error y no se sube nada
+  python3 scripts/n8n/sanitize_workflows.py "$WORK/activos" n8n/workflows "$BASE/.env" >/dev/null
+  git add n8n/workflows
   if ! git diff --cached --quiet; then
     git commit -q -m "backup: workflows $STAMP"
-    git push -q origin HEAD
+    git push -q origin HEAD:main
   fi
 fi
 
