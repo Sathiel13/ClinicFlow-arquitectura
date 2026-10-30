@@ -1,0 +1,1091 @@
+{
+  "updatedAt": "2026-10-29T05:43:17.000Z",
+  "createdAt": "2026-04-21T21:03:56.836Z",
+  "id": "UBvE1gzVINp72g4l",
+  "name": "[CF] 15 - Reminder System",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "c7b5afd7-64b4-4a2b-878a-9ae417ac35a2",
+      "name": "Schedule — Cada 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1680,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// ── CF-15 · Calcular ventanas de tiempo para recordatorios ────────────────\n// Corre cada 15 min. Ventanas amplias (±30 min) + reminder_Xh_sent=false\n// garantizan que nunca se pierda una cita aunque el cron falle una vez.\n\nconst now = new Date();\n\n// Ventana 24h: citas que empiezan entre ahora+23.5h y ahora+24.5h\nconst w24_start = new Date(now.getTime() + 23.5 * 3600_000).toISOString();\nconst w24_end   = new Date(now.getTime() + 24.5 * 3600_000).toISOString();\n\n// Ventana 2h: citas que empiezan entre ahora+1h45m y ahora+2h15m\nconst w2_start  = new Date(now.getTime() + 105 * 60_000).toISOString();\nconst w2_end    = new Date(now.getTime() + 135 * 60_000).toISOString();\n\nreturn [{ json: { now: now.toISOString(), w24_start, w24_end, w2_start, w2_end } }];\n"
+      },
+      "id": "3b25c536-d19a-4ed2-8450-38ca8df99859",
+      "name": "Calcular ventanas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,tenant_id,user_id,patient_id,service_id,start_at,end_at,status,calendar_event_id,reminder_24h_sent,reminder_2h_sent,patients(full_name),services(name,duration_minutes)"
+            },
+            {
+              "name": "and",
+              "value": "=(start_at.gte.{{$json.w24_start}},start_at.lte.{{$json.w24_end}})"
+            },
+            {
+              "name": "status",
+              "value": "=in.(reserved,confirmed)"
+            },
+            {
+              "name": "reminder_24h_sent",
+              "value": "=eq.false"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "99c7fce2-f480-40c8-9304-86c0b06812e5",
+      "name": "Supabase — GET recordatorios 24h",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1200,
+        208
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,tenant_id,user_id,patient_id,service_id,start_at,end_at,status,calendar_event_id,reminder_24h_sent,reminder_2h_sent,patients(full_name),services(name,duration_minutes)"
+            },
+            {
+              "name": "and",
+              "value": "=(start_at.gte.{{$json.w2_start}},start_at.lte.{{$json.w2_end}})"
+            },
+            {
+              "name": "status",
+              "value": "=in.(reserved,confirmed)"
+            },
+            {
+              "name": "reminder_2h_sent",
+              "value": "=eq.false"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bd1b1cbd-26de-4ffd-a807-d59254c50c4d",
+      "name": "Supabase — GET recordatorios 2h",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1200,
+        608
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Etiquetar recordatorios 24h procesando todos los items devueltos\nconst appts = $input.all()\n  .map(i => i.json)\n  .flatMap(j => Array.isArray(j) ? j : (j?.id ? [j] : []));\nconst start = new Date($('Calcular ventanas').item.json.w24_start).getTime();\nconst end = new Date($('Calcular ventanas').item.json.w24_end).getTime();\n\nreturn appts\n  .filter(a => {\n    if (!a?.id || !a?.start_at) return false;\n    if (a.reminder_24h_sent !== false) return false;\n    const t = new Date(a.start_at).getTime();\n    return t >= start && t <= end;\n  })\n  .map(a => ({ json: { ...a, _reminder_type: '24h', _reminder_field: 'reminder_24h_sent' } }));"
+      },
+      "id": "f0100ad7-e89c-485c-82a4-fd6e076e065e",
+      "name": "Etiquetar 24h",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        208
+      ],
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Etiquetar recordatorios 2h procesando todos los items devueltos\nconst appts = $input.all()\n  .map(i => i.json)\n  .flatMap(j => Array.isArray(j) ? j : (j?.id ? [j] : []));\nconst start = new Date($('Calcular ventanas').item.json.w2_start).getTime();\nconst end = new Date($('Calcular ventanas').item.json.w2_end).getTime();\n\nreturn appts\n  .filter(a => {\n    if (!a?.id || !a?.start_at) return false;\n    if (a.reminder_2h_sent !== false) return false;\n    const t = new Date(a.start_at).getTime();\n    return t >= start && t <= end;\n  })\n  .map(a => ({ json: { ...a, _reminder_type: '2h', _reminder_field: 'reminder_2h_sent' } }));"
+      },
+      "id": "cf722041-020f-499e-809a-dd3eeff1d834",
+      "name": "Etiquetar 2h",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        608
+      ],
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "b4e8c81f-f40c-4669-9e5e-71f60dca6fcf",
+      "name": "Merge — Todos los recordatorios",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -720,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "86b88f57-244c-42c3-9657-63f7bb9bba48",
+      "name": "SplitInBatches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 180, temperature: 0.5 }) }}",
+        "options": {}
+      },
+      "id": "274bbb16-67bc-4741-8b20-5094e20ce7ce",
+      "name": "GROQ — Humanizar recordatorio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        208
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// ── CF-15 · Resolver mensaje final del recordatorio ───────────────────────\n// Si GROQ respondió bien → usar. Si no → usar base determinístico.\n\nconst ctx      = $('Build & Send Reminder').item.json;\nconst groqResp = $input.first().json;\n\nlet aiText = null;\ntry {\n  aiText = String(groqResp?.choices?.[0]?.message?.content ?? '').trim();\n} catch (_) {}\n\n// Validar que el mensaje de GROQ tenga sentido:\n// debe contener el nombre del paciente y ser razonablemente largo\nconst namePresent = ctx._patient_name && aiText?.includes(ctx._patient_name.split(' ')[0]);\nconst isValid     = aiText && aiText.length >= 30 && namePresent;\n\nconst finalBody = isValid ? aiText : ctx._base_message;\n\nreturn [{\n  json: {\n    ...ctx,\n    _groq_messages: undefined,\n    _final_message: finalBody\n  }\n}];\n"
+      },
+      "id": "ddd9d5b3-f43d-40b0-a7da-ace94b85efce",
+      "name": "Resolve Mensaje Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        208
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://clinicflow-evolution:8080/message/sendText/{{ $json._evo_instance }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.CF_EVO_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json._wa_number, text: $json._final_message }) }}",
+        "options": {}
+      },
+      "id": "ca7278a6-c1b0-4ab9-9b21-7654f2a67124",
+      "name": "Evolution API — Enviar recordatorio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        208
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $('Build & Send Reminder').item.json._appt_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ [$('Build & Send Reminder').item.json._reminder_field]: true, updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "f51ccb10-ba6d-425e-97d7-ffe85756ce3c",
+      "name": "Supabase — Marcar recordatorio enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/message_log",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ tenant_id: $('Build & Send Reminder').item.json._tenant_id, user_wa: $('Build & Send Reminder').item.json._wa_number, direction: 'outbound', message_id: null, payload: { type: $('Build & Send Reminder').item.json._skip_send ? 'reminder_skipped' : 'reminder', reminder_type: $('Build & Send Reminder').item.json._reminder_type, body: $('Resolve Mensaje Final').isExecuted ? $('Resolve Mensaje Final').item.json._final_message : null, skip_reason: $('Build & Send Reminder').item.json._skip_reason ?? null, channel: 'evolution' } }) }}",
+        "options": {}
+      },
+      "id": "55a5f3cc-ba45-4e01-904e-43a6fdb32124",
+      "name": "Supabase — Log recordatorio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "baf15e9e-dd38-421e-a601-2c28d90c3e22",
+      "name": "Done — Todos procesados",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Recibe el item directo de SplitInBatches (la cita con todos sus campos)\n// Extrae los IDs que los siguientes GET nodes necesitan como $json.*\nconst appt = $input.first().json;\nreturn [{\n  json: {\n    // Datos de la cita — se propagan hacia adelante en toda la cadena\n    _appt_id:        appt.id,\n    _tenant_id:      appt.tenant_id,\n    _user_id:        appt.user_id,\n    _patient_id:     appt.patient_id,\n    _service_id:     appt.service_id,\n    _start_at:       appt.start_at,\n    _end_at:         appt.end_at,\n    _reminder_type:  appt._reminder_type,\n    _reminder_field: appt._reminder_field,\n    _patient_name:   appt.patients?.full_name ?? 'Paciente',\n    _service_name:   appt.services?.name      ?? 'tu cita',\n    // IDs para los GETs siguientes\n    tenant_id:       appt.tenant_id,\n    user_id:         appt.user_id,\n  }\n}];\n"
+      },
+      "id": "020342b2-595b-43ce-91bc-ff5706f45db0",
+      "name": "Prep Reminder Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenants",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json._tenant_id }}"
+            },
+            {
+              "name": "select",
+              "value": "id,name,evo_instance_name,timezone,status"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5d3ba64d-fafe-4a43-8247-fdd7e42c6978",
+      "name": "Supabase — GET Tenant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Fusionar contexto de la cita con datos del tenant\nconst ctx    = $('Prep Reminder Item').item.json;\nconst raw    = $input.first().json;\nconst tenant = Array.isArray(raw) ? raw[0] : (raw?.id ? raw : {});\nreturn [{\n  json: {\n    ...ctx,\n    _tenant_name:     tenant.name             ?? 'la clínica',\n    _tenant_evo:      tenant.evo_instance_name ?? null,\n    _tenant_timezone: tenant.timezone          ?? 'America/Mexico_City',\n    _tenant_active:   (tenant.status ?? 'active') === 'active',\n  }\n}];\n"
+      },
+      "id": "04e882b7-fa94-4f42-a4d6-a5153d4bdd1f",
+      "name": "Enrich con Tenant",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenant_settings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json._tenant_id }}"
+            },
+            {
+              "name": "select",
+              "value": "is_bot_enabled,phone_contact,welcome_message"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a52e9cfc-8de2-49ed-87af-cbf32d1322d8",
+      "name": "Supabase — GET Tenant Settings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Fusionar con settings del tenant\nconst ctx  = $('Enrich con Tenant').item.json;\nconst raw  = $input.first().json;\nconst sett = Array.isArray(raw) ? raw[0] : (raw ?? {});\nreturn [{\n  json: {\n    ...ctx,\n    _bot_enabled:  sett.is_bot_enabled ?? true,\n    _phone_contact: sett.phone_contact ?? null,\n    _welcome_msg:  sett.welcome_message ?? null,\n  }\n}];\n"
+      },
+      "id": "cd521c01-672f-480d-96dc-9adc0a36d12f",
+      "name": "Enrich con Settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/users",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json._user_id }}"
+            },
+            {
+              "name": "select",
+              "value": "id,wa_number,wa_name"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4896a6a4-9e90-4246-b4fe-3c8956fdcc51",
+      "name": "Supabase — GET User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Todo el contexto ya está en $input gracias a la cadena de Enrich\nconst ctx = $('Enrich con Settings').item.json;\nconst raw = $input.first().json;  // GET User response\nconst user = Array.isArray(raw) ? raw[0] : (raw?.id ? raw : {});\n\nconst waNumber    = user?.wa_number    ?? null;\nconst evoInstance = ctx._tenant_evo   ?? null;\n\n// Si no hay número o instancia, marcar para saltarse el envío\nif (!waNumber || !evoInstance || !ctx._bot_enabled || !ctx._tenant_active) {\n  return [{\n    json: {\n      ...ctx,\n      _wa_number:    waNumber,\n      _evo_instance: evoInstance,\n      _skip_send:    true,\n      _skip_reason:  !ctx._tenant_active ? 'tenant_paused'\n                   : !ctx._bot_enabled ? 'bot_disabled'\n                   : !waNumber ? 'no_wa_number'\n                   : 'no_evo_instance'\n    }\n  }];\n}\n\nconst tz  = ctx._tenant_timezone ?? 'America/Mexico_City';\nconst dt  = new Date(ctx._start_at);\nconst fmt = dt.toLocaleString('es-MX', {\n  timeZone: tz, weekday: 'long', day: 'numeric',\n  month: 'long', hour: '2-digit', minute: '2-digit', hour12: true\n});\n\nconst clinicName  = ctx._tenant_name;\nconst patientName = ctx._patient_name;\nconst serviceName = ctx._service_name;\nconst clinicPhone = ctx._phone_contact;\n\nconst baseMsg = ctx._reminder_type === '24h'\n  ? `Hola ${patientName} 👋 Te recordamos que *mañana* tienes cita de *${serviceName}* en *${clinicName}*.\\n\\n📅 ${fmt}\\n\\nSi necesitas cancelar o reagendar escribe *cancelar* o *reagendar*.`\n  : `Hola ${patientName} ⏰ Tu cita de *${serviceName}* en *${clinicName}* es *en 2 horas*.\\n\\n📅 ${fmt}\\n\\n¡Te esperamos! 😊`;\n\nconst systemPrompt =\n  `Eres el asistente de ${clinicName} redactando un recordatorio de cita por WhatsApp. ` +\n  `Humaniza el siguiente mensaje haciéndolo más cálido y natural. REGLAS ESTRICTAS:\\n` +\n  `- Conserva EXACTAMENTE: fecha, hora, nombre del paciente y nombre del servicio\\n` +\n  `- NO agregues información que no esté en el mensaje original\\n` +\n  `- Máximo 4 líneas + emojis apropiados. Tono: amigable, como una recepcionista real\\n` +\n  (clinicPhone ? `- Puedes mencionar el teléfono ${clinicPhone} como contacto de urgencias\\n` : '') +\n  `- Responde SOLO con el mensaje final, sin explicaciones ni comillas`;\n\nreturn [{\n  json: {\n    ...ctx,\n    _wa_number:      waNumber,\n    _evo_instance:   evoInstance,\n    _skip_send:      false,\n    _base_message:   baseMsg,\n    _fmt_datetime:   fmt,\n    _groq_messages:  [\n      { role: 'system', content: systemPrompt },\n      { role: 'user',   content: baseMsg }\n    ]\n  }\n}];\n"
+      },
+      "id": "fa46ff10-b916-49be-8880-c419423c2206",
+      "name": "Build & Send Reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cf15-skip-if",
+              "leftValue": "={{ $json._skip_send }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5624cd5d-4de3-433f-832a-cbd534e9f913",
+      "name": "IF — ¿Enviar mensaje?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Eliminar los {} vacíos que n8n genera cuando un Code devuelve []\n// y deduplicar por ID para evitar doble recordatorio a la misma cita\nconst seen = new Set();\nconst items = $input.all()\n  .map(i => i.json)\n  .filter(j => j && j.id && j._reminder_type)  // solo objetos reales de cita\n  .filter(j => {\n    const key = `${j.id}_${j._reminder_type}`;\n    if (seen.has(key)) return false;\n    seen.add(key);\n    return true;\n  });\n\nif (items.length === 0) {\n  return [{ json: { _no_items: true } }];\n}\n\nreturn items.map(j => ({ json: j }));\n"
+      },
+      "id": "ca124635-1f24-4ea4-81c7-97d985aa59f6",
+      "name": "Filtrar válidos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cf15-real-items",
+              "leftValue": "={{ $json._no_items }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "93cce74c-fef4-418b-aa3b-e168e3b5f1c5",
+      "name": "IF — ¿Items reales?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "c47c609b-20b8-49ab-b4f1-7c0bee5ab552",
+      "name": "NoOp — Sin recordatorios hoy",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        736
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule — Cada 15 min": {
+      "main": [
+        [
+          {
+            "node": "Calcular ventanas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular ventanas": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET recordatorios 24h",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Supabase — GET recordatorios 2h",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET recordatorios 24h": {
+      "main": [
+        [
+          {
+            "node": "Etiquetar 24h",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET recordatorios 2h": {
+      "main": [
+        [
+          {
+            "node": "Etiquetar 2h",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Etiquetar 24h": {
+      "main": [
+        [
+          {
+            "node": "Merge — Todos los recordatorios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Etiquetar 2h": {
+      "main": [
+        [
+          {
+            "node": "Merge — Todos los recordatorios",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge — Todos los recordatorios": {
+      "main": [
+        [
+          {
+            "node": "Filtrar válidos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SplitInBatches": {
+      "main": [
+        [
+          {
+            "node": "Prep Reminder Item",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done — Todos procesados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Humanizar recordatorio": {
+      "main": [
+        [
+          {
+            "node": "Resolve Mensaje Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Mensaje Final": {
+      "main": [
+        [
+          {
+            "node": "Evolution API — Enviar recordatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evolution API — Enviar recordatorio": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Marcar recordatorio enviado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Marcar recordatorio enviado": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Log recordatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Log recordatorio": {
+      "main": [
+        [
+          {
+            "node": "SplitInBatches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Reminder Item": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET Tenant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Tenant": {
+      "main": [
+        [
+          {
+            "node": "Enrich con Tenant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich con Tenant": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET Tenant Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Tenant Settings": {
+      "main": [
+        [
+          {
+            "node": "Enrich con Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich con Settings": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET User": {
+      "main": [
+        [
+          {
+            "node": "Build & Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build & Send Reminder": {
+      "main": [
+        [
+          {
+            "node": "IF — ¿Enviar mensaje?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿Enviar mensaje?": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Humanizar recordatorio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — Marcar recordatorio enviado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar válidos": {
+      "main": [
+        [
+          {
+            "node": "IF — ¿Items reales?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿Items reales?": {
+      "main": [
+        [
+          {
+            "node": "SplitInBatches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NoOp — Sin recordatorios hoy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Schedule — Cada 15 min": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "versionId": "6fc164a0-8a44-49be-ae51-98ae5ce1ae3d",
+  "activeVersionId": "6fc164a0-8a44-49be-ae51-98ae5ce1ae3d",
+  "versionCounter": 28,
+  "triggerCount": 1,
+  "tags": [
+    {
+      "updatedAt": "2026-04-09T00:39:52.789Z",
+      "createdAt": "2026-04-09T00:39:52.789Z",
+      "id": "3em2uCFTJOBSdWLW",
+      "name": "scheduler"
+    },
+    {
+      "updatedAt": "2026-04-09T00:39:52.830Z",
+      "createdAt": "2026-04-09T00:39:52.830Z",
+      "id": "CMzJZwBYQ1Q3EmPD",
+      "name": "reminders"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.657Z",
+      "createdAt": "2026-10-29T05:33:29.657Z",
+      "role": "workflow:owner",
+      "workflowId": "UBvE1gzVINp72g4l",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version a8689714",
+    "description": ""
+  }
+}

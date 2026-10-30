@@ -1,0 +1,591 @@
+{
+  "updatedAt": "2026-10-29T05:36:09.000Z",
+  "createdAt": "2026-04-20T14:29:05.610Z",
+  "id": "0df3bTsm6I8Lz0e3",
+  "name": "[CF] 01E - Evolution Inbound Entry",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "evolution/inbound",
+        "options": {}
+      },
+      "id": "66ad882f-70b3-4024-b963-cfc6cd8b99b6",
+      "name": "Webhook POST Evolution",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -5808,
+        496
+      ],
+      "webhookId": "75a9f4cb-23ed-47c7-bc8e-4c52eb1d0007"
+    },
+    {
+      "parameters": {
+        "jsCode": "// GUARD rapido para Evolution inbound\nconst body = $input.first().json.body;\n\nconst event = String(body?.event ?? '');\nconst eventLower = event.toLowerCase();\nconst data = body?.data ?? {};\nconst key = data?.key ?? {};\nconst messageType = String(data?.messageType ?? data?.type ?? '').toLowerCase();\n\nconst fromMe = key?.fromMe ?? true;\nconst remoteJid = key?.remoteJid ?? null;\nconst hasJid = !!remoteJid;\n\nconst isCallEvent =\n  eventLower.includes('call') ||\n  messageType.includes('call') ||\n  !!data?.call ||\n  !!data?.calls ||\n  !!body?.call ||\n  !!body?.calls;\n\nconst isGroup = String(remoteJid ?? '').endsWith('@g.us');\n\nconst isValid = (\n  event === 'messages.upsert' &&\n  fromMe === false &&\n  hasJid === true &&\n  isCallEvent === false &&\n  isGroup === false\n);\n\nreturn [{\n  json: {\n    _is_valid: isValid,\n    _skip_reason: isCallEvent ? 'call_event' : (isGroup ? 'group_message' : null),\n    _raw_body: body\n  }\n}];"
+      },
+      "id": "ab38e5f7-9c3e-4365-8b4c-2895af330317",
+      "name": "Guard — Filtrar evento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5568,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-valid",
+              "leftValue": "={{ $json._is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fd29d4bd-3959-4928-b4c9-7221166256b7",
+      "name": "¿Es mensaje válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -5328,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Construir una llave de deduplicación ROBUSTA por inbound ANTES de normalize.\n// No dependemos solo de message_id porque algunos duplicados de Evolution/Baileys\n// pueden llegar con distinto id pero mismo timestamp + contenido.\n\nconst item = $input.first().json;\nconst body = item._raw_body ?? {};\nconst data = body?.data ?? {};\nconst msg  = data?.message ?? {};\n\nconst instanceName = body?.instance ?? data?.instanceId ?? 'default';\nconst remoteJid    = data?.key?.remoteJid ?? null;\nconst messageId    = data?.key?.id ?? null;\nconst messageType  = String(data?.messageType ?? 'unknown');\nconst messageTs    = String(data?.messageTimestamp ?? body?.date_time ?? '');\n\n// Extraer una representación estable del contenido antes de normalize\nconst rawContent =\n  msg?.conversation ??\n  msg?.extendedTextMessage?.text ??\n  msg?.imageMessage?.caption ??\n  msg?.videoMessage?.caption ??\n  msg?.documentMessage?.caption ??\n  msg?.buttonsResponseMessage?.selectedButtonId ??\n  msg?.buttonsResponseMessage?.selectedDisplayText ??\n  msg?.listResponseMessage?.singleSelectReply?.selectedRowId ??\n  msg?.listResponseMessage?.title ??\n  msg?.templateButtonReplyMessage?.selectedId ??\n  msg?.templateButtonReplyMessage?.selectedDisplayText ??\n  msg?.audioMessage?.caption ??\n  '';\n\nconst normalizedContent = String(rawContent)\n  .trim()\n  .toLowerCase()\n  .replace(/\\s+/g, ' ')\n  .slice(0, 160);\n\n// Si no hay contenido textual, usar el tipo como huella base\nconst contentFingerprint = normalizedContent || messageType;\n\n// Hint opcional para trazabilidad\nconst tenantHint = body?.destination ?? null;\n\n// Llave robusta\nconst dedupKey = (instanceName && remoteJid && messageTs)\n  ? `${instanceName}|${remoteJid}|${messageType}|${messageTs}|${contentFingerprint}`\n  : null;\n\nreturn [{\n  json: {\n    ...item,\n    _instance_name: instanceName,\n    _remote_jid: remoteJid,\n    _message_id: messageId,\n    _message_type: messageType,\n    _message_ts: messageTs,\n    _tenant_hint: tenantHint,\n    _content_fingerprint: contentFingerprint,\n    _dedup_key: dedupKey\n  }\n}];"
+      },
+      "id": "1cbd7f30-79bc-4315-b216-b3ef10057ceb",
+      "name": "Extraer dedup_key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5088,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-haskey",
+              "leftValue": "={{ !!$json._dedup_key }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c74854b0-3c6e-4f97-b1ee-b3f929b8a285",
+      "name": "¿Dedup key disponible?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -4848,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/rpc/claim_inbound_message",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ p_dedup_key: $json._dedup_key, p_tenant_hint: $json._tenant_hint, p_instance_name: $json._instance_name, p_remote_jid: $json._remote_jid, p_message_id: $json._message_id }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "4d89c3f2-a397-46c6-affd-94b53fced59f",
+      "name": "Supabase — Claim inbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -4608,
+        352
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Interpretar resultado del claim atómico de deduplicación\nconst envelope = $('Extraer dedup_key').item.json;\nconst resp     = $input.first().json;\n\n// Si no hay dedup_key → permitir (no hay cómo deduplicar)\nif (!envelope._dedup_key) {\n  return [{ json: { ...envelope, _dedup_allow: true, _is_duplicate: false,\n                    _dedup_status: 'no_key', _dedup_error: null } }];\n}\n\n// PostgREST puede devolver jsonb directo O dentro de array\n// Normalizar siempre\nlet result = resp;\nif (Array.isArray(resp)) result = resp[0] ?? {};\n\n// Caso 1: respuesta correcta de la RPC\nif (typeof result?.is_duplicate === 'boolean') {\n  const isDup = result.is_duplicate;\n  return [{ json: { ...envelope, _dedup_allow: !isDup, _is_duplicate: isDup,\n                    _dedup_status: isDup ? 'duplicate' : 'new', _dedup_error: null } }];\n}\n\n// Caso 2: error de la RPC (fallo de red, permiso, tabla no existe, etc.)\n// → FAIL OPEN: dejar pasar el mensaje para no bloquear el sistema\nconst errMsg = result?.error?.message ?? result?.message ?? result?.hint ?? JSON.stringify(result);\nreturn [{ json: { ...envelope, _dedup_allow: true, _is_duplicate: false,\n                  _dedup_status: 'error_open', _dedup_error: errMsg } }];\n"
+      },
+      "id": "572667d4-2c48-478b-acdf-15a1b29ffc93",
+      "name": "Resolver claim inbound",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4368,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-allow",
+              "leftValue": "={{ $json._dedup_allow }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ee77df0f-db3e-40ca-960f-1259c2344f75",
+      "name": "IF — ¿Procesar inbound?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -4128,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-deduperr",
+              "leftValue": "={{ $json._dedup_status === 'error' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e927d908-4e60-48f9-8310-d328bf9039e6",
+      "name": "IF — ¿Error de dedup?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3888,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Detectar si el inbound es audio / nota de voz sin romper la ruta actual de texto.\nconst item = $input.first().json;\nconst body = item._raw_body ?? {};\nconst data = body?.data ?? {};\nconst msg  = data?.message ?? {};\nconst messageType = String(data?.messageType ?? '');\n\nconst isAudio =\n  /audio|ptt|voice/i.test(messageType) ||\n  !!msg?.audioMessage ||\n  !!msg?.pttMessage ||\n  !!msg?.documentWithCaptionMessage?.message?.audioMessage;\n\nreturn [{\n  json: {\n    ...item,\n    _message_type: messageType,\n    _is_audio: isAudio\n  }\n}];"
+      },
+      "id": "70ec7683-352e-415c-a486-c042a2f2f7f3",
+      "name": "Detectar tipo de inbound",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4128,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-audio",
+              "leftValue": "={{ $json._is_audio }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2fcd7f1a-4c7c-4b70-bed2-4074919a43d1",
+      "name": "¿Es audio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3888,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "hxmjIWCThhi2D0Vp",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/hxmjIWCThhi2D0Vp",
+          "cachedResultName": "[CF] 01BE - Evolution Normalize Payload"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "f6d4f120-f9e7-44be-b738-0937fba03a63",
+      "name": "→ CF-01BE Normalize",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -3648,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "rXLtBmt9wmCC7oow",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/rXLtBmt9wmCC7oow",
+          "cachedResultName": "[CF] 01EA - Evolution Audio Transcribe"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "d4d377a0-7515-4ed2-8d2f-5b73857a5dfa",
+      "name": "→ CF-01EA Audio Transcribe",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -3648,
+        448
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "608c43ac-9c10-46d6-8a5d-9f40903e9244",
+      "name": "Skip — No es mensaje",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -5088,
+        672
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "aa035af5-3679-4ec4-a7bb-ac2a81cbda64",
+      "name": "Skip — Mensaje duplicado",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -3584,
+        928
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "1a767c58-a67c-4334-a199-37d6b60b0aea",
+      "name": "Skip — Error dedup (proteger idempotencia)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -3584,
+        688
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook POST Evolution": {
+      "main": [
+        [
+          {
+            "node": "Guard — Filtrar evento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard — Filtrar evento": {
+      "main": [
+        [
+          {
+            "node": "¿Es mensaje válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es mensaje válido?": {
+      "main": [
+        [
+          {
+            "node": "Extraer dedup_key",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip — No es mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer dedup_key": {
+      "main": [
+        [
+          {
+            "node": "¿Dedup key disponible?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Dedup key disponible?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Claim inbound",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Detectar tipo de inbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Claim inbound": {
+      "main": [
+        [
+          {
+            "node": "Resolver claim inbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver claim inbound": {
+      "main": [
+        [
+          {
+            "node": "IF — ¿Procesar inbound?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿Procesar inbound?": {
+      "main": [
+        [
+          {
+            "node": "Detectar tipo de inbound",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF — ¿Error de dedup?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿Error de dedup?": {
+      "main": [
+        [
+          {
+            "node": "Skip — Error dedup (proteger idempotencia)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip — Mensaje duplicado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detectar tipo de inbound": {
+      "main": [
+        [
+          {
+            "node": "¿Es audio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es audio?": {
+      "main": [
+        [
+          {
+            "node": "→ CF-01EA Audio Transcribe",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-01BE Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "global": {
+      "messageDedup": {
+        "ClinicFlow-Pruebas-Demos|{{REDACTED:PHONE}}@s.whatsapp.net|AC80B13730DD0EE7F324A2A3F38B2F3E": 1776715615443,
+        "ClinicFlow-Pruebas-Demos|{{REDACTED:PHONE}}@s.whatsapp.net|ACBE357605232850F6C21909AA66F9A6": 1776715637945
+      }
+    }
+  },
+  "meta": null,
+  "versionId": "abe94227-636f-404c-aca5-952176317576",
+  "activeVersionId": "abe94227-636f-404c-aca5-952176317576",
+  "versionCounter": 80,
+  "triggerCount": 1,
+  "tags": [
+    {
+      "updatedAt": "2026-03-13T23:53:08.722Z",
+      "createdAt": "2026-03-13T23:53:08.722Z",
+      "id": "QKOu4rlMJFZBky9o",
+      "name": "evolution"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.628Z",
+      "createdAt": "2026-03-13T23:51:17.628Z",
+      "id": "j6x1x4ElQPvLTYFS",
+      "name": "inbound"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.575Z",
+      "createdAt": "2026-10-29T05:33:29.575Z",
+      "role": "workflow:owner",
+      "workflowId": "0df3bTsm6I8Lz0e3",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version e70f6331",
+    "description": ""
+  }
+}

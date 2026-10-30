@@ -1,0 +1,292 @@
+{
+  "updatedAt": "2026-10-29T05:37:33.000Z",
+  "createdAt": "2026-04-20T14:36:56.660Z",
+  "id": "ahFUcS6dBVagPpcv",
+  "name": "[CF] 14E - WhatsApp Outbound Sender (Evolution)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ea7c7bc4-a4ef-45d1-a87a-1f55a4507328",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $input.first().json;\nconst outbound = envelope._outbound;\nconst to       = envelope.user?.wa_number;\nconst instance = envelope.tenant?.evo_instance_name ?? $vars?.CF_EVO_INSTANCE;\n\nif (!outbound?.body) return [{ json: { ...envelope, _skip: true } }];\n\n// Evolution con Baileys NO soporta botones nativos.\n// Convertimos todo a texto formateado con opciones numeradas.\nfunction buildTextFromButtons(body, buttons) {\n  if (!buttons || buttons.length === 0) return body;\n  const opts = buttons.map((b, i) => `${i + 1}. ${b.title}`).join('\\n');\n  return `${body}\\n\\n${opts}`;\n}\n\nfunction buildTextFromList(body, list) {\n  if (!list?.sections) return body;\n  let text = body + '\\n';\n  for (const section of list.sections) {\n    if (section.title) text += `\\n*${section.title}*\\n`;\n    for (const row of section.rows) {\n      text += `• ${row.title}`;\n      if (row.description) text += ` — ${row.description}`;\n      text += '\\n';\n    }\n  }\n  text += '\\n_Responde con el número o nombre de la opción que deseas._';\n  return text;\n}\n\nlet finalText = '';\n\nswitch (outbound.type) {\n  case 'text':\n    finalText = outbound.body;\n    break;\n  case 'buttons':\n    finalText = buildTextFromButtons(outbound.body, outbound.buttons);\n    break;\n  case 'list':\n    finalText = buildTextFromList(outbound.body, outbound.list);\n    break;\n  default:\n    finalText = outbound.body;\n}\n\nconst endpoint = `/message/sendText/${instance}`;\nconst payload  = { number: to, text: finalText };\n\nreturn [{ json: { ...envelope, _skip: false, _endpoint: endpoint, _payload: payload } }];"
+      },
+      "id": "4e906a6b-6532-4a36-947e-00034770c5e0",
+      "name": "Build Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e025ed54-381f-4673-a677-10ad95693731",
+      "name": "¿Hay mensaje?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://clinicflow-evolution:8080{{ $json._endpoint }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "{{REDACTED:CF_EVO_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json._payload) }}",
+        "options": {}
+      },
+      "id": "73a90716-ffc7-49d1-9a72-26ef83e3a1d7",
+      "name": "Evolution API — Send",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/message_log",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "=={{ JSON.stringify({  tenant_id:  $('Build Payload').item.json.tenant?.tenant_id,  user_wa:    $('Build Payload').item.json.user?.wa_number,  direction:  \"outbound\",  message_id: null,  payload: {    type:    $('Build Payload').item.json._outbound?.type,    body:    $('Build Payload').item.json._outbound?.body,    channel: $('Build Payload').item.json._channel ?? \"evolution\"  }\n})\n}}",
+        "options": {}
+      },
+      "id": "6d62a1de-fe29-4ed8-9b35-9493e6ee94d3",
+      "name": "Supabase — Log outbound",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Build Payload').item.json;\nreturn [{ json: { ...e, _skip:undefined, _endpoint:undefined, _payload:undefined, _outbound:undefined } }];"
+      },
+      "id": "36e51355-6414-4347-b9de-7a1d17ee0969",
+      "name": "Recover Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c7843631-1973-4995-abbd-7baaa496db1b",
+      "name": "Skip — Sin mensaje",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        288
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Payload": {
+      "main": [
+        [
+          {
+            "node": "¿Hay mensaje?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay mensaje?": {
+      "main": [
+        [
+          {
+            "node": "Evolution API — Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip — Sin mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evolution API — Send": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Log outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Log outbound": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "96be58a9-9adb-41c2-92fa-227dde445698",
+  "activeVersionId": "96be58a9-9adb-41c2-92fa-227dde445698",
+  "versionCounter": 39,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-14T19:01:38.245Z",
+      "createdAt": "2026-03-14T19:01:38.245Z",
+      "id": "FeYERjWUMQoKvBFd",
+      "name": "outbound"
+    },
+    {
+      "updatedAt": "2026-03-13T23:53:08.722Z",
+      "createdAt": "2026-03-13T23:53:08.722Z",
+      "id": "QKOu4rlMJFZBky9o",
+      "name": "evolution"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.664Z",
+      "createdAt": "2026-10-29T05:33:29.664Z",
+      "role": "workflow:owner",
+      "workflowId": "ahFUcS6dBVagPpcv",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 3655ce2b",
+    "description": ""
+  }
+}

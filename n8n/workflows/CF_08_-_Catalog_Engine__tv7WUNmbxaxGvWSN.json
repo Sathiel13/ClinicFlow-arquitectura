@@ -1,0 +1,596 @@
+{
+  "updatedAt": "2026-10-29T05:38:10.000Z",
+  "createdAt": "2026-04-20T15:06:00.955Z",
+  "id": "tv7WUNmbxaxGvWSN",
+  "name": "[CF] 08 - Catalog Engine",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "40ca826a-34f5-4176-9415-b0956a5bca41",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -768,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/services",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "is_active",
+              "value": "=eq.true"
+            },
+            {
+              "name": "select",
+              "value": "id,name,description,duration_minutes,price,category,provider_services(id,provider_id,calcom_event_type_id,duration_minutes,price,is_active,sort_order,providers(id,name,specialty,description,is_active,sort_order))"
+            },
+            {
+              "name": "order",
+              "value": "category.asc,name.asc"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e1a4c634-1aca-44b7-993d-bae4e57a8d42",
+      "name": "Supabase — GET servicios activos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -512,
+        208
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Execute Workflow Trigger').first().json;\nconst rawItems = $input.all().map(i => i.json);\r\nconst session  = envelope.session ?? {};\r\nconst patient  = envelope.patient ?? {};\r\nconst pending  = session.pending_context ?? {};\r\n\r\nconst normalizeText = (value) =>\r\n  String(value ?? '')\r\n    .normalize('NFD')\r\n    .replace(/[\\u0300-\\u036f]/g, '')\r\n    .toLowerCase()\r\n    .trim()\r\n    .replace(/\\s+/g, ' ');\r\n\r\nconst toNumber = (value) => {\r\n  const n = Number(value);\r\n  return Number.isFinite(n) ? n : null;\r\n};\r\n\r\nconst providerFromRow = (row) => {\r\n  const provider = row.providers ?? row.provider ?? {};\r\n  return {\r\n    provider_service_id: row.id ?? null,\r\n    provider_id: row.provider_id ?? provider.id ?? null,\r\n    provider_name: provider.name ?? row.provider_name ?? '',\r\n    provider_specialty: provider.specialty ?? row.provider_specialty ?? null,\r\n    calcom_event_type_id: row.calcom_event_type_id ?? null,\r\n    duration_minutes: row.duration_minutes ?? null,\r\n    price: row.price ?? null,\r\n    is_active: row.is_active ?? true,\r\n    sort_order: row.sort_order ?? 100,\r\n  };\r\n};\r\n\r\nconst services = rawItems\r\n  .map(item => {\r\n    const s = item.service ?? item;\r\n    const providerRows = Array.isArray(s.provider_services) ? s.provider_services : [];\r\n    const providers = providerRows\r\n      .map(providerFromRow)\r\n      .filter(p => p.provider_id && p.provider_name && p.is_active !== false)\r\n      .sort((a, b) => (a.sort_order - b.sort_order) || String(a.provider_name).localeCompare(String(b.provider_name), 'es'));\r\n\r\n    return {\r\n      id:               s.id               ?? null,\r\n      name:             s.name             ?? '',\r\n      description:      s.description      ?? '',\r\n      price:            s.price            ?? s.price_mxn ?? null,\r\n      duration_minutes: s.duration_minutes ?? s.duration  ?? 30,\r\n      is_active:        s.is_active        ?? true,\r\n      category:         s.category         ?? 'General',\r\n      providers,\r\n    };\r\n  })\r\n  .filter(s => s.id && s.name && s.is_active !== false);\r\n\r\nconst interactiveId    = envelope.message?.interactive?.id ?? null;\r\nconst messageText      = String(envelope.message?.text ?? '').trim();\r\nconst normalizedText   = normalizeText(messageText);\r\nconst currentStep      = session.current_step ?? 'idle';\r\nconst currentMessageId = envelope.message?.message_id ?? null;\r\nconst activePatientId  =\r\n  session.active_patient_id ||\r\n  patient.active_patient_id ||\r\n  null;\r\n\r\nconst inputConsumed = envelope._input_consumed === true;\r\nconst sameCatalogPromptMessage =\r\n  !!currentMessageId &&\r\n  !!pending.catalog_prompt_message_id &&\r\n  pending.catalog_prompt_message_id === currentMessageId;\r\n\r\nconst canUseCurrentInputForSelection =\n  !inputConsumed &&\n  !sameCatalogPromptMessage &&\n  (\n    currentStep === 'select_service' ||\n    ['text_booking', 'text_catalog'].includes(envelope._catalog_origin)\n  );\n\r\nconst canUseCurrentInputForProvider =\r\n  !inputConsumed &&\r\n  currentStep === 'select_provider';\r\n\r\nlet selectedService = null;\r\nlet selectedProvider = null;\r\n\r\nconst servicesList = [...services].sort((a, b) => {\r\n  const catCmp = String(a.category).localeCompare(String(b.category), 'es');\r\n  if (catCmp !== 0) return catCmp;\r\n  return String(a.name).localeCompare(String(b.name), 'es');\r\n});\r\n\r\nconst clearCatalogPromptPending = () => {\r\n  const next = { ...(session.pending_context ?? {}) };\r\n  delete next.catalog_prompt_message_id;\r\n  delete next.catalog_prompted_at;\r\n  delete next.catalog_origin;\r\n  delete next.provider_options;\r\n  delete next.provider_prompted_at;\r\n  return next;\r\n};\r\n\r\nconst providerPatch = (service, provider, basePending = clearCatalogPromptPending()) => {\r\n  const effectiveDuration = provider?.duration_minutes ?? service.duration_minutes;\r\n  const effectivePrice = provider?.price ?? service.price;\r\n  return {\r\n    pending_context: {\r\n      ...basePending,\r\n      active_provider_id: provider?.provider_id ?? null,\r\n      provider_id: provider?.provider_id ?? null,\r\n      provider_name: provider?.provider_name ?? null,\r\n      provider_specialty: provider?.provider_specialty ?? null,\r\n      provider_service_id: provider?.provider_service_id ?? null,\r\n      calcom_event_type_id: provider?.calcom_event_type_id ?? null,\r\n      service_name: service.name,\r\n      service_duration: effectiveDuration,\r\n      service_price: effectivePrice,\r\n    },\r\n    active_provider_id: provider?.provider_id ?? null,\r\n    provider_name: provider?.provider_name ?? null,\r\n    provider_specialty: provider?.provider_specialty ?? null,\r\n    provider_service_id: provider?.provider_service_id ?? null,\r\n    calcom_event_type_id: provider?.calcom_event_type_id ?? null,\r\n    service_duration: effectiveDuration,\r\n    service_price: effectivePrice,\r\n  };\r\n};\r\n\r\nconst buildAdvance = (service, provider) => {\n  const patch = providerPatch(service, provider);\r\n  const price = patch.service_price\n    ? `$${parseFloat(patch.service_price).toLocaleString('es-MX')} MXN`\n    : 'Consultar precio';\n  const nextStep   = 'select_patient';\n  const advanceTo  = 'patient_manager';\n  const providerLine = patch.provider_name ? `\\n👨‍⚕️ ${patch.provider_name}` : '';\n\r\n  return [{\r\n    json: {\r\n      ...envelope,\r\n      _needs_nlp: false,\r\n      session: {\r\n        ...session,\r\n        current_step: nextStep,\n        active_service_id: service.id,\n        active_provider_id: patch.active_provider_id,\n        active_patient_id: null,\n        pending_context: patch.pending_context,\n      },\n      patient: {\n        ...patient,\n        active_patient_id: null,\n      },\n      _session_update: {\n        current_step: nextStep,\n        active_service_id: service.id,\n        active_provider_id: patch.active_provider_id,\n        active_patient_id: null,\n        pending_context: patch.pending_context,\n      },\n      _selected_service: service,\n      _selected_provider: provider,\n      _advance_to: advanceTo,\n      _pm_force_list: true,\n      _catalog_selection_consumed: true,\n      _outbound: undefined\n    }\n  }];\n};\n\nconst synonymHints = {\n  neumologia: ['neumologo', 'pulmon', 'pulmones', 'respirar', 'respiracion', 'tos', 'asma', 'bronquitis', 'flemas', 'espirometria'],\n  cardiologia: ['cardiologo', 'corazon', 'pecho', 'presion', 'ecocardiograma', 'eco', 'palpitaciones'],\n  pediatria: ['pediatra', 'nino', 'nina', 'bebe', 'infante', 'control pediatrico'],\n  traumatologia: ['traumatologo', 'hueso', 'huesos', 'fractura', 'golpe', 'dolor rodilla', 'dolor espalda', 'lesion'],\n  'medicina general': ['medico general', 'general', 'revision', 'seguimiento', 'consulta general', 'malestar'],\n  'consulta inicial': ['primera vez', 'valoracion', 'valoracion inicial', 'primera consulta', 'consulta inicial'],\n};\n\nconst scoreByTokens = (haystack, needle, weight) => {\n  if (!haystack || !needle) return 0;\n  let score = 0;\n  if (haystack === needle) score += weight * 5;\n  if (haystack.includes(needle) || needle.includes(haystack)) score += weight * 3;\n  for (const token of needle.split(' ').filter(t => t.length >= 4)) {\n    if (haystack.includes(token)) score += weight;\n  }\n  return score;\n};\n\nconst scoreServiceMatch = (svc, text) => {\n  const serviceName = normalizeText(svc.name);\n  const category = normalizeText(svc.category);\n  const description = normalizeText(svc.description);\n  const providerText = (svc.providers ?? [])\n    .map(p => `${p.provider_name ?? ''} ${p.provider_specialty ?? ''}`)\n    .map(normalizeText)\n    .join(' ');\n\n  let score = 0;\n  score += scoreByTokens(serviceName, text, 12);\n  score += scoreByTokens(category, text, 8);\n  score += scoreByTokens(description, text, 4);\n  score += scoreByTokens(providerText, text, 6);\n\n  for (const [topic, words] of Object.entries(synonymHints)) {\n    const topicHit = text.includes(topic) || words.some(w => text.includes(normalizeText(w)));\n    if (!topicHit) continue;\n    if (serviceName.includes(topic) || category.includes(topic) || providerText.includes(topic)) score += 28;\n    if (words.some(w => serviceName.includes(normalizeText(w)) || description.includes(normalizeText(w)))) score += 12;\n  }\n\n  if (/consulta|cita|agendar|servicio|doctor|dr|medico|especialista/.test(text)) {\n    score += 2;\n  }\n\n  return score;\n};\n\nconst resolveServiceByContext = (text) => {\n  const ranked = servicesList\n    .map((service, index) => ({ service, index, score: scoreServiceMatch(service, text) }))\n    .filter(r => r.score > 0)\n    .sort((a, b) => (b.score - a.score) || (a.index - b.index));\n\n  if (ranked.length === 0) return null;\n  const [best, second] = ranked;\n  const asksSpecificProcedure = /(seguimiento|control|espirometria|ecocardiograma|eco|estudio|procedimiento)/.test(text);\n  if (!asksSpecificProcedure) {\n    const preferredGeneralConsult = ranked.find(r => {\n      const name = normalizeText(r.service.name);\n      return r.score >= 24 &&\n        name.includes('consulta') &&\n        !/(seguimiento|control|espirometria|ecocardiograma|eco|procedimiento|estudio)/.test(name);\n    });\n    if (preferredGeneralConsult) return preferredGeneralConsult.service;\n  }\n\n  if (best.score >= 24 && (!second || best.score - second.score >= 8)) return best.service;\n\n  const closeMatches = ranked.filter(r => best.score - r.score <= 7);\n  const preferredConsult = closeMatches.find(r => {\n    const name = normalizeText(r.service.name);\n    return name.includes('consulta') &&\n      !/(seguimiento|control|espirometria|ecocardiograma|eco|procedimiento|estudio)/.test(name);\n  });\n  if (preferredConsult && best.score >= 24) return preferredConsult.service;\n\n  return null;\n};\n\n// 1) Selección de médico para un servicio ya elegido\nif (canUseCurrentInputForProvider) {\n  const providerOptions = Array.isArray(pending.provider_options) ? pending.provider_options : [];\r\n  const serviceId = session.active_service_id ?? pending.active_service_id ?? null;\r\n  selectedService = services.find(s => s.id === serviceId) ?? null;\r\n  const choice = toNumber(normalizedText);\r\n\r\n  if (choice && choice >= 1 && choice <= providerOptions.length) {\r\n    selectedProvider = providerOptions[choice - 1];\r\n  }\r\n\r\n  if (!selectedProvider && normalizedText) {\r\n    const exact = providerOptions.filter(p => normalizeText(p.provider_name) === normalizedText);\r\n    if (exact.length >= 1) selectedProvider = exact[0];\r\n  }\r\n\r\n  if (!selectedProvider && normalizedText) {\r\n    const partial = providerOptions.filter(p => normalizeText(p.provider_name).includes(normalizedText));\r\n    if (partial.length === 1) selectedProvider = partial[0];\r\n  }\r\n\r\n  if (selectedService && selectedProvider) {\r\n    return buildAdvance(selectedService, selectedProvider);\r\n  }\r\n\r\n  const lines = providerOptions.map((p, i) => {\r\n    const spec = p.provider_specialty ? ` — ${p.provider_specialty}` : '';\r\n    return `*${i + 1}.* ${p.provider_name}${spec}`;\r\n  }).join('\\n');\r\n\r\n  return [{\r\n    json: {\r\n      ...envelope,\r\n      _needs_nlp: false,\r\n      session: { ...session, current_step: 'select_provider' },\r\n      _session_update: {\r\n        current_step: 'select_provider',\r\n        active_service_id: serviceId,\r\n        active_provider_id: null,\r\n        active_patient_id: activePatientId,\r\n        pending_context: pending,\r\n      },\r\n      _advance_to: 'outbound',\r\n      _outbound: {\r\n        type: 'text',\r\n        body: `No pude identificar al médico. Elige una opción:\\n\\n${lines}\\n\\n_Responde con el número o nombre del médico._`\r\n      }\r\n    }\r\n  }];\r\n}\r\n\r\n// 2) Selección por botón explícita\r\nif (interactiveId?.startsWith('CF:SERV:') && interactiveId !== 'CF:SERV:list') {\r\n  const sid = interactiveId.replace('CF:SERV:', '').trim();\r\n  selectedService = services.find(s => String(s.id) === sid) ?? null;\r\n}\r\n\r\n// 3) Selección por número o texto exacto/parcial\r\nif (!selectedService && normalizedText && canUseCurrentInputForSelection) {\r\n  const choice = toNumber(normalizedText);\r\n\r\n  if (choice && choice >= 1 && choice <= servicesList.length) {\r\n    selectedService = servicesList[choice - 1];\r\n  }\r\n\r\n  if (!selectedService) {\r\n    const exactMatches = servicesList.filter(s => normalizeText(s.name) === normalizedText);\r\n    if (exactMatches.length >= 1) selectedService = exactMatches[0];\r\n  }\r\n\r\n  if (!selectedService) {\n    const partialMatches = servicesList.filter(s => normalizeText(s.name).includes(normalizedText));\n    if (partialMatches.length === 1) selectedService = partialMatches[0];\n  }\n\n  if (!selectedService) {\n    selectedService = resolveServiceByContext(normalizedText);\n  }\n}\n\r\n// 4) Sin servicios\r\nif (servicesList.length === 0) {\r\n  return [{\r\n    json: {\r\n      ...envelope,\r\n      _needs_nlp: false,\r\n      _advance_to: 'outbound',\r\n      _outbound: {\r\n        type: 'text',\r\n        body: 'No hay servicios disponibles en este momento. Contáctanos directamente para más información.'\r\n      }\r\n    }\r\n  }];\r\n}\r\n\r\n// 5) Servicio seleccionado por método determinístico\r\nif (selectedService) {\r\n  const providers = selectedService.providers ?? [];\r\n\r\n  if (providers.length === 1) {\r\n    return buildAdvance(selectedService, providers[0]);\r\n  }\r\n\r\n  if (providers.length > 1) {\r\n    const nextPending = {\r\n      ...clearCatalogPromptPending(),\r\n      active_service_id: selectedService.id,\r\n      service_name: selectedService.name,\r\n      provider_options: providers,\r\n      provider_prompted_at: new Date().toISOString(),\r\n    };\r\n    const lines = providers.map((p, i) => {\r\n      const spec = p.provider_specialty ? ` — ${p.provider_specialty}` : '';\r\n      return `*${i + 1}.* ${p.provider_name}${spec}`;\r\n    }).join('\\n');\r\n\r\n    return [{\r\n      json: {\r\n        ...envelope,\r\n        _needs_nlp: false,\r\n        session: {\r\n          ...session,\r\n          current_step: 'select_provider',\r\n          active_service_id: selectedService.id,\r\n          active_provider_id: null,\r\n          active_patient_id: activePatientId,\r\n          pending_context: nextPending,\r\n        },\r\n        _session_update: {\r\n          current_step: 'select_provider',\r\n          active_service_id: selectedService.id,\r\n          active_provider_id: null,\r\n          active_patient_id: activePatientId,\r\n          pending_context: nextPending,\r\n        },\r\n        _selected_service: selectedService,\r\n        _advance_to: 'outbound',\r\n        _outbound: {\r\n          type: 'text',\r\n          body: `Elige con qué médico quieres agendar *${selectedService.name}*:\\n\\n${lines}\\n\\n_Responde con el número o nombre del médico._`\r\n        }\r\n      }\r\n    }];\r\n  }\r\n\r\n  // Compatibilidad con tenants antiguos sin providers configurados.\r\n  return buildAdvance(selectedService, null);\r\n}\r\n\r\n// 6) Texto libre no matched → intentar NLP\r\nif (normalizedText && canUseCurrentInputForSelection) {\r\n  return [{\r\n    json: {\r\n      ...envelope,\r\n      _needs_nlp: true,\r\n      _nlp_services: servicesList,\r\n      session: {\r\n        ...session,\r\n        current_step: 'select_service',\r\n      },\r\n      _session_update: {\r\n        current_step: 'select_service',\r\n        active_provider_id: null,\r\n        pending_context: {\r\n          ...(session.pending_context ?? {}),\r\n        }\r\n      },\r\n      _advance_to: 'outbound',\r\n    }\r\n  }];\r\n}\r\n\r\n// 7) Mostrar catálogo agrupado por categoría\r\nconst byCategory = {};\r\nfor (const svc of servicesList) {\r\n  const cat = svc.category ?? 'General';\r\n  if (!byCategory[cat]) byCategory[cat] = [];\r\n  byCategory[cat].push(svc);\r\n}\r\n\r\nlet index = 1;\r\nconst lines = [];\r\n\r\nfor (const [cat, items] of Object.entries(byCategory)) {\r\n  lines.push(`\\n*${cat}*`);\r\n  for (const svc of items) {\r\n    const primaryProvider = (svc.providers ?? [])[0] ?? null;\r\n    const priceValue = primaryProvider?.price ?? svc.price;\r\n    const durationValue = primaryProvider?.duration_minutes ?? svc.duration_minutes;\r\n    const precio = priceValue > 0\r\n      ? `$${parseFloat(priceValue).toLocaleString('es-MX')}`\r\n      : 'Precio con revisión previa';\r\n    const mins = durationValue;\r\n    const dur = mins >= 60\r\n      ? `${Math.floor(mins/60)}h${mins%60 > 0 ? (mins%60)+'min' : ''}`\r\n      : `${mins} min`;\r\n    const providerHint = svc.providers?.length === 1\r\n      ? ` · ${svc.providers[0].provider_name}`\r\n      : (svc.providers?.length > 1 ? ` · ${svc.providers.length} médicos` : '');\r\n    lines.push(`*${index}.* ${svc.name} — ${precio} · ${dur}${providerHint}`);\r\n    index++;\r\n  }\r\n}\r\n\r\nconst catalogText = lines.join('\\n').trimStart();\r\n\r\nconst nextPending = {\r\n  ...(session.pending_context ?? {}),\r\n  catalog_prompt_message_id: currentMessageId,\r\n  catalog_prompted_at: new Date().toISOString(),\r\n  catalog_origin: envelope._catalog_origin ?? null,\r\n};\r\n\r\nreturn [{\r\n  json: {\r\n    ...envelope,\r\n    _needs_nlp: false,\r\n    session: {\r\n      ...session,\r\n      current_step: 'select_service',\r\n      pending_context: nextPending,\r\n    },\r\n    _session_update: {\r\n      current_step: 'select_service',\r\n      active_provider_id: null,\r\n      pending_context: nextPending,\r\n    },\r\n    _advance_to: 'outbound',\r\n    _outbound: {\r\n      type: 'text',\r\n      body: `Selecciona el servicio que necesitas:\\n${catalogText}\\n\\n_Responde con el número o nombre de la opción que deseas._`\r\n    }\r\n  }\r\n}];"
+      },
+      "id": "20c488e8-7f3e-480d-bae5-8cf12a197a92",
+      "name": "Build Catálogo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({  current_step:      $json._session_update?.current_step ?? $json.session?.current_step ?? 'idle',  active_service_id: $json._session_update?.active_service_id ?? $json.session?.active_service_id ?? null,  active_provider_id:$json._session_update?.active_provider_id ?? $json.session?.active_provider_id ?? null,  active_patient_id: $json._session_update?.active_patient_id ?? $json.session?.active_patient_id ?? null,  pending_context:   $json._session_update?.pending_context ?? $json.session?.pending_context ?? {},  updated_at:        new Date().toISOString()}) }}",
+        "options": {}
+      },
+      "id": "340b57f8-04db-4bd3-b124-32af52a44c23",
+      "name": "Supabase — UPDATE session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -32,
+        208
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recuperar envelope desde NLP resolver (si corrió) o desde Build Catálogo (path directo)\nlet e;\ntry {\n  const nlp = $('Resolver NLP — Servicio').first().json;\n  // Si llegó por el path NLP, usa esa versión (ya tiene _session_update y _advance_to correctos)\n  e = nlp;\n} catch (_) {\n  // Path directo (sin NLP): usar Build Catálogo\n  e = $('Build Catálogo').first().json;\n}\nreturn [{ json: { ...e, _session_update: undefined, _selected_service: undefined, _needs_nlp: undefined, _nlp_services: undefined } }];"
+      },
+      "id": "c5c0a7bf-5f41-47e4-ad28-c20ce352905d",
+      "name": "Recover Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "53ae6059-4c52-46ec-b41f-94a16a886fa5",
+      "name": "→ CF-14 Outbound Sender",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._advance_to }}",
+                    "rightValue": "outbound",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0e1ce13a-b136-46a9-8548-1e7ae8a74bb0"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._advance_to }}",
+                    "rightValue": "patient_manager",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "e50bb162-4da2-4b04-93ec-124a67badd3a"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._advance_to }}",
+                    "rightValue": "availability",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "5f6902ff-6bcb-408b-b840-831f42c3b7f8"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "ignoreCase": false
+        }
+      },
+      "id": "25e83025-7eb8-4d1d-a544-a8ab998e94db",
+      "name": "Switch Avance",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -32,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "FZhU5iobUVOHPOEG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/FZhU5iobUVOHPOEG",
+          "cachedResultName": "[CF] 11 - Availability Engine (Cal.com)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "13a9aad9-c01c-4814-9229-288d638829bc",
+      "name": "→ CF-11 Availability",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-c08nlp01",
+              "leftValue": "={{ $json._needs_nlp }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c78f3cef-daab-4b0a-a218-5ec15d6857d2",
+      "name": "IF — ¿NLP servicio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -272,
+        48
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Construir prompt amplio para que GROQ identifique intención, servicio y especialidad\nconst envelope  = $input.first().json;\nconst services  = envelope._nlp_services ?? [];\nconst text      = String(envelope.message?.text ?? '').trim();\nconst clinicName = envelope.tenant?.name ?? 'la clínica';\nconst session = envelope.session ?? {};\nconst pending = session.pending_context ?? {};\n\nconst serviceList = services.map((s, i) => {\n  const providers = (s.providers ?? []).map(p => {\n    const specialty = p.provider_specialty ? `, especialidad: ${p.provider_specialty}` : '';\n    const price = p.price ? `, precio: $${parseFloat(p.price).toLocaleString('es-MX')}` : '';\n    const duration = p.duration_minutes ? `, duración: ${p.duration_minutes} min` : '';\n    return `${p.provider_name}${specialty}${price}${duration}`;\n  }).join(' | ');\n  const price = s.price ? `, precio base: $${parseFloat(s.price).toLocaleString('es-MX')}` : '';\n  const desc  = s.description ? `, descripción: ${s.description}` : '';\n  const category = s.category ? `, categoría: ${s.category}` : '';\n  return `${i + 1}. Servicio: ${s.name}${category}${desc}${price}. Médicos: ${providers || 'sin médico específico'}`;\n}).join('\\n');\n\nconst context = {\n  current_step: session.current_step ?? 'idle',\n  previous_service: pending.service_name ?? null,\n  previous_provider: pending.provider_name ?? null,\n};\n\nconst system =\n  `Eres el motor de interpretación de WhatsApp para ${clinicName}. ` +\n  `Tu tarea es elegir el servicio más probable de una lista cerrada. ` +\n  `El usuario puede escribir o mandar audio transcrito con saludos, relleno, faltas de ortografía, abreviaciones, especialidades, nombre del médico, síntomas generales o frases como \"quiero saber servicios\". ` +\n  `Ignora saludos como hola/buenas tardes y céntrate en la intención clínica. ` +\n  `Si el usuario solo pide ver servicios o precios sin elegir uno, responde service_index null con intent \"show_catalog\". ` +\n  `Si menciona una especialidad o síntoma que corresponde claramente a un servicio, elige ese servicio. ` +\n  `No inventes servicios fuera de la lista. Responde únicamente JSON válido, sin markdown ni explicación:\\n` +\n  `{\"intent\":\"book_or_select|show_catalog|unknown\",\"service_index\":N,\"confidence\":0.0,\"reason\":\"breve\"}`;\n\nconst user =\n  `Texto del usuario: \"${text}\"\\n\\n` +\n  `Contexto actual: ${JSON.stringify(context)}\\n\\n` +\n  `Lista cerrada de servicios:\\n${serviceList}`;\n\nreturn [{ json: { ...envelope, _groq_messages: [{ role: 'system', content: system }, { role: 'user', content: user }] } }];"
+      },
+      "id": "21cd4967-3174-4a04-9562-8a5101d34027",
+      "name": "Build GROQ Prompt — Servicio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        48
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 200, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
+        "options": {}
+      },
+      "id": "f46c882d-8176-4b75-82f3-aee3bf131095",
+      "name": "GROQ — Match servicio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        208,
+        48
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parsear respuesta GROQ y resolver servicio o caer al error original\nconst envelope = $('Build GROQ Prompt — Servicio').first().json;\nconst groqResp = $input.first().json;\nconst services = envelope._nlp_services ?? [];\nconst session  = envelope.session ?? {};\nconst patient  = envelope.patient ?? {};\n\nlet serviceIndex = null;\nlet confidence   = 0;\n\ntry {\n  const content = String(groqResp?.choices?.[0]?.message?.content ?? '');\n  const cleaned = content.replace(/```json|```/g, '').trim();\n  const parsed  = JSON.parse(cleaned);\n  serviceIndex  = parsed?.service_index ?? null;\n  confidence    = Number(parsed?.confidence ?? 0);\n} catch (_) {}\n\nconst idx      = serviceIndex !== null ? Number(serviceIndex) - 1 : -1;\nconst resolved = (idx >= 0 && idx < services.length && confidence >= 0.50) ? services[idx] : null;\n\nconst formatCatalog = () => services\n  .map((s, i) => {\n    const p = (s.providers ?? [])[0] ?? null;\n    const price = (p?.price ?? s.price) ? `$${parseFloat(p?.price ?? s.price).toLocaleString('es-MX')}` : 'Consultar';\n    const dur = p?.duration_minutes ?? s.duration_minutes;\n    const providerHint = s.providers?.length === 1 ? ` · ${s.providers[0].provider_name}` : '';\n    return `*${i + 1}.* ${s.name} — ${price} · ${dur} min${providerHint}`;\n  })\n  .join('\\n');\n\nif (!resolved) {\n  return [{\n    json: {\n      ...envelope,\n      _needs_nlp: false,\n      _nlp_services: undefined,\n      _groq_messages: undefined,\n      session:         { ...session, current_step: 'select_service' },\n      _session_update: { current_step: 'select_service', active_provider_id: null },\n      _advance_to: 'outbound',\n      _outbound: {\n        type: 'text',\n        body: `No pude identificar el servicio. Aquí están las opciones:\\n\\n${formatCatalog()}\\n\\n_Responde con el número o el nombre del servicio._`\n      }\n    }\n  }];\n}\n\nconst providers = resolved.providers ?? [];\nconst activePatientId = session.active_patient_id || patient.active_patient_id || null;\n\nif (providers.length > 1) {\n  const nextPending = {\n    ...(session.pending_context ?? {}),\n    active_service_id: resolved.id,\n    service_name: resolved.name,\n    provider_options: providers,\n    provider_prompted_at: new Date().toISOString(),\n  };\n  const lines = providers.map((p, i) => {\n    const spec = p.provider_specialty ? ` — ${p.provider_specialty}` : '';\n    return `*${i + 1}.* ${p.provider_name}${spec}`;\n  }).join('\\n');\n\n  return [{\n    json: {\n      ...envelope,\n      _needs_nlp: false,\n      _nlp_services: undefined,\n      _groq_messages: undefined,\n      session: {\n        ...session,\n        current_step: 'select_provider',\n        active_service_id: resolved.id,\n        active_provider_id: null,\n        active_patient_id: activePatientId,\n        pending_context: nextPending,\n      },\n      _session_update: {\n        current_step: 'select_provider',\n        active_service_id: resolved.id,\n        active_provider_id: null,\n        active_patient_id: activePatientId,\n        pending_context: nextPending,\n      },\n      _selected_service: resolved,\n      _advance_to: 'outbound',\n      _outbound: {\n        type: 'text',\n        body: `Elige con qué médico quieres agendar *${resolved.name}*:\\n\\n${lines}\\n\\n_Responde con el número o nombre del médico._`\n      }\n    }\n  }];\n}\n\nconst provider = providers[0] ?? null;\nconst effectiveDuration = provider?.duration_minutes ?? resolved.duration_minutes;\nconst effectivePrice = provider?.price ?? resolved.price;\nconst price = effectivePrice\n  ? `$${parseFloat(effectivePrice).toLocaleString('es-MX')} MXN`\n  : 'Consultar precio';\nconst nextStep   = 'select_patient';\nconst advanceTo  = 'patient_manager';\nconst pendingContext = {\n  ...(session.pending_context ?? {}),\n  active_provider_id: provider?.provider_id ?? null,\n  provider_id: provider?.provider_id ?? null,\n  provider_name: provider?.provider_name ?? null,\n  provider_specialty: provider?.provider_specialty ?? null,\n  provider_service_id: provider?.provider_service_id ?? null,\n  calcom_event_type_id: provider?.calcom_event_type_id ?? null,\n  service_name: resolved.name,\n  service_duration: effectiveDuration,\n  service_price: effectivePrice,\n};\nconst providerLine = provider?.provider_name ? `\\n👨‍⚕️ ${provider.provider_name}` : '';\n\nreturn [{\n  json: {\n    ...envelope,\n    _needs_nlp: false,\n    _nlp_services: undefined,\n    _groq_messages: undefined,\n    _nlp_matched_service: resolved.name,\n    session: {\n      ...session,\n      current_step: nextStep,\n      active_service_id: resolved.id,\n      active_provider_id: provider?.provider_id ?? null,\n      active_patient_id: null,\n      pending_context: pendingContext,\n    },\n    patient: { ...patient, active_patient_id: null },\n    _session_update: {\n      current_step: nextStep,\n      active_service_id: resolved.id,\n      active_provider_id: provider?.provider_id ?? null,\n      active_patient_id: null,\n      pending_context: pendingContext,\n    },\n    _selected_service: resolved,\n    _selected_provider: provider,\n    _advance_to: advanceTo,\n    _pm_force_list: true,\n    _catalog_selection_consumed: true,\n    _outbound: undefined\n  }\n}];"
+      },
+      "id": "90c08a1f-fdcf-41ef-bb47-0c378e3d6f26",
+      "name": "Resolver NLP — Servicio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        48
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "46pxTzNfW2DAMFJT",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/46pxTzNfW2DAMFJT",
+          "cachedResultName": "[CF] 07 - Patient Manager"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "f4aafbf1-3ff4-4eb4-9e2a-9c7ea015fdb6",
+      "name": "→ CF-07 Patient Manager",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        352
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET servicios activos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET servicios activos": {
+      "main": [
+        [
+          {
+            "node": "Build Catálogo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Catálogo": {
+      "main": [
+        [
+          {
+            "node": "IF — ¿NLP servicio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPDATE session": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope": {
+      "main": [
+        [
+          {
+            "node": "Switch Avance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Avance": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-07 Patient Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-11 Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿NLP servicio?": {
+      "main": [
+        [
+          {
+            "node": "Build GROQ Prompt — Servicio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — UPDATE session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build GROQ Prompt — Servicio": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Match servicio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Match servicio": {
+      "main": [
+        [
+          {
+            "node": "Resolver NLP — Servicio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver NLP — Servicio": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPDATE session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "9f8a27ab-30b1-4864-b78f-89d3737890fc",
+  "activeVersionId": "9f8a27ab-30b1-4864-b78f-89d3737890fc",
+  "versionCounter": 61,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    },
+    {
+      "updatedAt": "2026-03-14T19:02:25.430Z",
+      "createdAt": "2026-03-14T19:02:25.430Z",
+      "id": "ldJOP00XSZk3HYty",
+      "name": "catalog"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.702Z",
+      "createdAt": "2026-10-29T05:33:29.702Z",
+      "role": "workflow:owner",
+      "workflowId": "tv7WUNmbxaxGvWSN",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 6bd277ad",
+    "description": ""
+  }
+}

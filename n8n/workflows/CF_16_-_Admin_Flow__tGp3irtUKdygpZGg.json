@@ -1,0 +1,1377 @@
+{
+  "updatedAt": "2026-10-29T05:38:03.000Z",
+  "createdAt": "2026-04-20T15:00:18.242Z",
+  "id": "tGp3irtUKdygpZGg",
+  "name": "[CF] 16 - Admin Flow",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ff7a0950-9617-406e-9bf4-116ee5987342",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1920,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenant_admins",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "admin_wa",
+              "value": "=eq.{{ $json.user.wa_number }}"
+            },
+            {
+              "name": "is_active",
+              "value": "=eq.true"
+            },
+            {
+              "name": "select",
+              "value": "id,admin_wa,role,is_active"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d7c49b8f-8e95-4155-8767-e3c553a428af",
+      "name": "Supabase — Verificar admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1680,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Recuperar resultado de la verificación de admin\nconst envelope = $('Execute Workflow Trigger').first().json;\nconst raw = $input.first().json;\nconst rows = Array.isArray(raw) ? raw : (raw?.id ? [raw] : []);\nconst isAdmin = rows.length > 0 && rows[0]?.is_active === true;\n\nreturn [{ json: { ...envelope, _is_admin: isAdmin, _admin_row: rows[0] ?? null } }];\n"
+      },
+      "id": "3716c9db-795a-4c81-b660-8cb4225a8111",
+      "name": "Recover — Verificación admin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-cf16-ifa",
+              "leftValue": "={{ $json._is_admin }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c7d76212-e066-4218-8f1e-fd5ce5846eb4",
+      "name": "IF — ¿Es admin válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst e = $input.first().json;\nreturn [{\n  json: {\n    ...e,\n    _outbound: {\n      type: 'text',\n      body: '🔒 No tienes permisos para acceder al panel de administración.'\n    }\n  }\n}];\n"
+      },
+      "id": "f22bb8a8-e116-41ef-8551-7115763ea079",
+      "name": "Build Deny Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "19c73896-32e8-4493-bf46-d6c80916e635",
+      "name": "→ CF-14 Acceso denegado",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -720,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// ── CF-16 · Preparar contexto y prompt para clasificar comando admin ────────\nconst envelope   = $input.first().json;\nconst msgText    = String(envelope.message?.text ?? '').trim();\nconst clinicName = envelope.tenant?.name ?? 'la clínica';\nconst userName   = envelope.user?.wa_name ?? 'Admin';\n\n// Detectar si es la primera vez (comando implícito → menú de ayuda)\nconst isFirstAccess = !msgText ||\n  ['admin', '#admin', 'panel', 'administrar'].includes(msgText.toLowerCase().trim());\n\nif (isFirstAccess) {\n  return [{\n    json: {\n      ...envelope,\n      _admin_cmd: 'ayuda',\n      _msg_text:  msgText,\n      _groq_messages: null\n    }\n  }];\n}\n\nconst systemPrompt =\n  `Eres un clasificador de comandos para el panel de administración de \"${clinicName}\". ` +\n  `Clasifica el mensaje del administrador en UNO de estos comandos:\\n\\n` +\n  `- agenda_hoy: ver citas de hoy\\n` +\n  `- agenda_manana: ver citas de mañana\\n` +\n  `- pausar: pausar o desactivar el bot\\n` +\n  `- activar: activar o reanudar el bot\\n` +\n  `- estado: ver estado del sistema, estadísticas, resumen\\n` +\n  `- pacientes: ver lista de últimos pacientes registrados\\n` +\n  `- ayuda: mostrar menú de ayuda o comandos disponibles\\n\\n` +\n  `Responde ÚNICAMENTE con JSON válido sin backticks:\\n` +\n  `{\"cmd\": \"<comando>\", \"confidence\": 0.0}`;\n\nreturn [{\n  json: {\n    ...envelope,\n    _admin_cmd: null,\n    _msg_text:  msgText,\n    _groq_messages: [\n      { role: 'system', content: systemPrompt },\n      { role: 'user',   content: msgText }\n    ]\n  }\n}];\n"
+      },
+      "id": "c2c117da-2579-41d3-893a-837b0e8e1e0d",
+      "name": "Build Admin Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages ?? [], max_tokens: 80, temperature: 0.5 }) }}",
+        "options": {}
+      },
+      "id": "bd33a58d-ad4d-4309-a7c7-e5802c59e77c",
+      "name": "GROQ — Clasificar comando admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -720,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Parsear respuesta GROQ y resolver comando\nconst envelope = $('Build Admin Context').item.json;\nconst groqResp = $input.first().json;\n\n// Si ya viene con _admin_cmd (ej: 'ayuda' por first access) → pasar directo\nif (envelope._admin_cmd) {\n  return [{ json: { ...envelope, _groq_messages: undefined } }];\n}\n\nlet cmd = 'ayuda';\nlet confidence = 0;\n\ntry {\n  const content = String(groqResp?.choices?.[0]?.message?.content ?? '');\n  const cleaned = content.replace(/```json|```/g, '').trim();\n  const parsed  = JSON.parse(cleaned);\n  cmd        = String(parsed?.cmd ?? 'ayuda').toLowerCase().trim();\n  confidence = Number(parsed?.confidence ?? 0);\n} catch (_) {}\n\nconst validCmds = ['agenda_hoy','agenda_manana','pausar','activar','estado','pacientes','ayuda'];\nif (!validCmds.includes(cmd) || confidence < 0.6) cmd = 'ayuda';\n\nreturn [{ json: { ...envelope, _admin_cmd: cmd, _groq_messages: undefined } }];\n"
+      },
+      "id": "c7e3d211-e41d-40f3-9e9a-1990b9c1cade",
+      "name": "Parse Comando Admin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._admin_cmd }}",
+                    "rightValue": "agenda_hoy",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "sw16-agenda_hoy"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "agenda_hoy"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._admin_cmd }}",
+                    "rightValue": "agenda_manana",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "sw16-agenda_manana"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "agenda_manana"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._admin_cmd }}",
+                    "rightValue": "pausar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "sw16-pausar"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pausar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._admin_cmd }}",
+                    "rightValue": "activar",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "sw16-activar"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "activar"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._admin_cmd }}",
+                    "rightValue": "estado",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "sw16-estado"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "estado"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._admin_cmd }}",
+                    "rightValue": "pacientes",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "sw16-pacientes"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pacientes"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "ignoreCase": true
+        }
+      },
+      "id": "5d431d81-5b6b-49ac-a48c-8d9b8729f360",
+      "name": "Switch Comando Admin",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "start_at",
+              "value": "=gte.{{ new Date(new Date().setHours(0,0,0,0) + 0*86400000).toISOString() }}"
+            },
+            {
+              "name": "start_at",
+              "value": "=lte.{{ new Date(new Date().setHours(23,59,59,999) + 0*86400000).toISOString() }}"
+            },
+            {
+              "name": "status",
+              "value": "=in.(reserved,confirmed)"
+            },
+            {
+              "name": "select",
+              "value": "id,start_at,end_at,status,patients(full_name),services(name)"
+            },
+            {
+              "name": "order",
+              "value": "start_at.asc"
+            },
+            {
+              "name": "limit",
+              "value": "20"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3ee98f42-3327-4537-86b8-8901cb2353ac",
+      "name": "Supabase — GET Agenda Hoy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Construir agenda del día solicitado (hoy o mañana)\nconst envelope  = $('Switch Comando Admin').item.json;\nconst raw       = $input.first().json;\nconst appts     = Array.isArray(raw) ? raw : (raw?.id ? [raw] : []);\nconst cmd       = envelope._admin_cmd;\nconst tz        = envelope.tenant?.timezone ?? 'America/Mexico_City';\nconst label     = cmd === 'agenda_hoy' ? 'Hoy' : 'Mañana';\n\nif (appts.length === 0) {\n  return [{ json: {\n    ...envelope,\n    _outbound: { type: 'text',\n      body: `📅 *Agenda — ${label}*\\n\\nNo hay citas programadas para ${label.toLowerCase()}.` }\n  }}];\n}\n\nconst lines = appts.map((a, i) => {\n  const dt = new Date(a.start_at);\n  const fmt = dt.toLocaleString('es-MX', {\n    timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true\n  });\n  const patient = a.patients?.full_name ?? 'Paciente';\n  const service = a.services?.name      ?? 'Cita';\n  return `• ${fmt} — *${patient}* (${service})`;\n}).join('\\n');\n\nreturn [{ json: {\n  ...envelope,\n  _outbound: { type: 'text',\n    body: `📅 *Agenda — ${label}* (${appts.length} cita${appts.length > 1 ? 's' : ''})\\n\\n${lines}\\n\\n_Escribe *ayuda* para ver más opciones._`\n  }\n}}];\n"
+      },
+      "id": "41856a50-02ea-4e2d-9ae4-33916932d0ef",
+      "name": "Build Agenda Hoy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "32da0635-5fa4-49dd-abea-788c53338759",
+      "name": "→ CF-14 (Hoy)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "start_at",
+              "value": "=gte.{{ new Date(new Date().setHours(0,0,0,0) + 1*86400000).toISOString() }}"
+            },
+            {
+              "name": "start_at",
+              "value": "=lte.{{ new Date(new Date().setHours(23,59,59,999) + 1*86400000).toISOString() }}"
+            },
+            {
+              "name": "status",
+              "value": "=in.(reserved,confirmed)"
+            },
+            {
+              "name": "select",
+              "value": "id,start_at,end_at,status,patients(full_name),services(name)"
+            },
+            {
+              "name": "order",
+              "value": "start_at.asc"
+            },
+            {
+              "name": "limit",
+              "value": "20"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bf05a762-efdb-492e-9c41-0a217f09881b",
+      "name": "Supabase — GET Agenda Mañana",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        208
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Construir agenda del día solicitado (hoy o mañana)\nconst envelope  = $('Switch Comando Admin').item.json;\nconst raw       = $input.first().json;\nconst appts     = Array.isArray(raw) ? raw : (raw?.id ? [raw] : []);\nconst cmd       = envelope._admin_cmd;\nconst tz        = envelope.tenant?.timezone ?? 'America/Mexico_City';\nconst label     = cmd === 'agenda_hoy' ? 'Hoy' : 'Mañana';\n\nif (appts.length === 0) {\n  return [{ json: {\n    ...envelope,\n    _outbound: { type: 'text',\n      body: `📅 *Agenda — ${label}*\\n\\nNo hay citas programadas para ${label.toLowerCase()}.` }\n  }}];\n}\n\nconst lines = appts.map((a, i) => {\n  const dt = new Date(a.start_at);\n  const fmt = dt.toLocaleString('es-MX', {\n    timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true\n  });\n  const patient = a.patients?.full_name ?? 'Paciente';\n  const service = a.services?.name      ?? 'Cita';\n  return `• ${fmt} — *${patient}* (${service})`;\n}).join('\\n');\n\nreturn [{ json: {\n  ...envelope,\n  _outbound: { type: 'text',\n    body: `📅 *Agenda — ${label}* (${appts.length} cita${appts.length > 1 ? 's' : ''})\\n\\n${lines}\\n\\n_Escribe *ayuda* para ver más opciones._`\n  }\n}}];\n"
+      },
+      "id": "79fd03e2-3b2c-4bf8-a584-f0349cfd8cc0",
+      "name": "Build Agenda Mañana",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        208
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "62cf2853-3474-4007-b0f1-e5c5c10ef108",
+      "name": "→ CF-14 (Mañana)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenant_settings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ is_bot_enabled: false, updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "2ad2d38c-387b-4140-8db6-d42746fe1c09",
+      "name": "Supabase — Pausar bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst e = $input.first().json;\nreturn [{ json: {\n  ...e,\n  _outbound: { type: 'text',\n    body: '⏸️ *Bot pausado correctamente.*\\n\\n' +\n          'El asistente ya no responderá a los pacientes.\\n\\n' +\n          'Escribe *activar* cuando quieras reanudarlo.'\n  }\n}}];\n"
+      },
+      "id": "ad574942-bd98-4dfa-9b1d-9efa2202296d",
+      "name": "Build Pausa OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        400
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "49d49e90-232a-444a-8bbd-e20fb3e8ec9c",
+      "name": "→ CF-14 (Pausa)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenant_settings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ is_bot_enabled: true, updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "5a4bf9ec-e715-44a9-8d6d-cc5cb32d1c1b",
+      "name": "Supabase — Activar bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        608
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst e = $input.first().json;\nreturn [{ json: {\n  ...e,\n  _outbound: { type: 'text',\n    body: '▶️ *Bot activado correctamente.*\\n\\n' +\n          'El asistente volverá a responder a los pacientes. ✅\\n\\n' +\n          'Escribe *ayuda* para ver más opciones.'\n  }\n}}];\n"
+      },
+      "id": "192b8f13-8a8d-482c-8268-173f0211be7e",
+      "name": "Build Activar OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        608
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "7a124b2f-fac7-4314-a0dd-106bec588fca",
+      "name": "→ CF-14 (Activar)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "created_at",
+              "value": "=gte.{{ new Date(Date.now()-30*86400000).toISOString() }}"
+            },
+            {
+              "name": "select",
+              "value": "id,start_at,status"
+            },
+            {
+              "name": "limit",
+              "value": "200"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7a090d7d-90d3-42d2-a5fd-582abc8f6d42",
+      "name": "Supabase — GET Stats 30d",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        800
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Construir reporte de estado del sistema\nconst envelope  = $('Switch Comando Admin').item.json;\nconst raw       = $input.first().json;\nconst appts     = Array.isArray(raw) ? raw : (raw?.id ? [raw] : []);\nconst settings  = envelope.tenant?.settings ?? {};\nconst botStatus = settings.is_bot_enabled ? '🟢 Activo' : '🔴 Pausado';\nconst clinicName = envelope.tenant?.name ?? 'Clínica';\n\n// Calcular estadísticas de los últimos 30 días\nconst now = new Date();\nconst stats = appts.reduce((acc, a) => {\n  acc.total++;\n  if (a.status === 'reserved' || a.status === 'confirmed') acc.activas++;\n  if (a.status === 'cancelled') acc.canceladas++;\n  const start = new Date(a.start_at);\n  if (start > now) acc.proximas++;\n  return acc;\n}, { total: 0, activas: 0, canceladas: 0, proximas: 0 });\n\nconst lines = [\n  `🏥 *${clinicName}*`,\n  `🤖 Bot: ${botStatus}`,\n  ``,\n  `📊 *Últimos 30 días*`,\n  `• Total citas: ${stats.total}`,\n  `• Activas/confirmadas: ${stats.activas}`,\n  `• Canceladas: ${stats.canceladas}`,\n  `• Próximas: ${stats.proximas}`,\n  ``,\n  `_Escribe *ayuda* para ver más opciones._`\n].join('\\n');\n\nreturn [{ json: { ...envelope, _outbound: { type: 'text', body: lines } } }];\n"
+      },
+      "id": "8a900475-4098-49e7-bf5e-ebec46ae8bf7",
+      "name": "Build Estado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        800
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "d535d652-1f62-4f68-87fe-507a567fcdba",
+      "name": "→ CF-14 (Estado)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/patients",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "select",
+              "value": "id,full_name,phone,created_at"
+            },
+            {
+              "name": "order",
+              "value": "created_at.desc"
+            },
+            {
+              "name": "limit",
+              "value": "10"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3f6725a8-379a-46d7-b612-97ccde059883",
+      "name": "Supabase — GET Pacientes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        1008
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Mostrar últimos pacientes registrados\nconst envelope = $('Switch Comando Admin').item.json;\nconst raw      = $input.first().json;\nconst patients = Array.isArray(raw) ? raw : (raw?.id ? [raw] : []);\n\nif (patients.length === 0) {\n  return [{ json: {\n    ...envelope,\n    _outbound: { type: 'text', body: '👥 No hay pacientes registrados aún.' }\n  }}];\n}\n\nconst lines = patients.map((p, i) =>\n  `• ${p.full_name}${p.phone ? ` — ${p.phone}` : ''}`\n).join('\\n');\n\nreturn [{ json: {\n  ...envelope,\n  _outbound: { type: 'text',\n    body: `👥 *Últimos pacientes (${patients.length})*\\n\\n${lines}\\n\\n_Escribe *ayuda* para ver más opciones._`\n  }\n}}];\n"
+      },
+      "id": "faa63374-95e5-4525-8028-2555b58fd21d",
+      "name": "Build Pacientes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        1008
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "5ffb4e75-b318-443f-aba1-6ba13b9d0627",
+      "name": "→ CF-14 (Pacientes)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst e = $input.first().json;\nconst name = e.user?.wa_name ?? 'Admin';\nconst bot  = e.tenant?.settings?.is_bot_enabled ? '🟢 Activo' : '🔴 Pausado';\nreturn [{ json: {\n  ...e,\n  _outbound: { type: 'text',\n    body: `⚙️ *Panel de Administración*\\nHola ${name}. Bot: ${bot}\\n\\n` +\n          `*Comandos disponibles:*\\n\\n` +\n          `📅 *agenda hoy* — Ver citas de hoy\\n` +\n          `📅 *agenda mañana* — Ver citas de mañana\\n` +\n          `📊 *estado* — Estadísticas y estado del sistema\\n` +\n          `👥 *pacientes* — Últimos pacientes registrados\\n` +\n          `⏸️ *pausar* — Desactivar el bot temporalmente\\n` +\n          `▶️ *activar* — Reactivar el bot\\n\\n` +\n          `_Escribe el comando que necesites._`\n  }\n}}];\n"
+      },
+      "id": "25dfc5f1-650e-4b6b-9c2c-084b7a8c84ab",
+      "name": "Build Menú Ayuda",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "a0c087f6-30a2-461c-abf2-05e1ae7175cc",
+      "name": "→ CF-14 (Ayuda)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        1200
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Verificar admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Verificar admin": {
+      "main": [
+        [
+          {
+            "node": "Recover — Verificación admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover — Verificación admin": {
+      "main": [
+        [
+          {
+            "node": "IF — ¿Es admin válido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿Es admin válido?": {
+      "main": [
+        [
+          {
+            "node": "Build Admin Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Deny Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Deny Response": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Acceso denegado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Admin Context": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Clasificar comando admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Clasificar comando admin": {
+      "main": [
+        [
+          {
+            "node": "Parse Comando Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Comando Admin": {
+      "main": [
+        [
+          {
+            "node": "Switch Comando Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Comando Admin": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET Agenda Hoy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — GET Agenda Mañana",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — Pausar bot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — Activar bot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — GET Stats 30d",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — GET Pacientes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Menú Ayuda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Agenda Hoy": {
+      "main": [
+        [
+          {
+            "node": "Build Agenda Hoy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Agenda Mañana": {
+      "main": [
+        [
+          {
+            "node": "Build Agenda Mañana",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Agenda Hoy": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 (Hoy)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Agenda Mañana": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 (Mañana)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Pausar bot": {
+      "main": [
+        [
+          {
+            "node": "Build Pausa OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Pausa OK": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 (Pausa)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Activar bot": {
+      "main": [
+        [
+          {
+            "node": "Build Activar OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Activar OK": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 (Activar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Stats 30d": {
+      "main": [
+        [
+          {
+            "node": "Build Estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Estado": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 (Estado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Pacientes": {
+      "main": [
+        [
+          {
+            "node": "Build Pacientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Pacientes": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 (Pacientes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Menú Ayuda": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 (Ayuda)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "ab7602f2-4248-4512-bac3-aad31329df1f",
+  "activeVersionId": "ab7602f2-4248-4512-bac3-aad31329df1f",
+  "versionCounter": 61,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    },
+    {
+      "updatedAt": "2026-04-09T00:43:18.424Z",
+      "createdAt": "2026-04-09T00:43:18.424Z",
+      "id": "zSzICT6VGWYXTRfT",
+      "name": "admin"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.694Z",
+      "createdAt": "2026-10-29T05:33:29.694Z",
+      "role": "workflow:owner",
+      "workflowId": "tGp3irtUKdygpZGg",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version e5259ab7",
+    "description": ""
+  }
+}

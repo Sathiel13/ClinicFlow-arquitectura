@@ -1,0 +1,739 @@
+{
+  "updatedAt": "2026-10-29T05:36:25.000Z",
+  "createdAt": "2026-04-20T15:04:29.767Z",
+  "id": "46pxTzNfW2DAMFJT",
+  "name": "[CF] 07 - Patient Manager",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a83f9343-984a-4648-ab6a-08b26ef100dc",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/patients",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "user_id",
+              "value": "=eq.{{ $json.user.user_id }}"
+            },
+            {
+              "name": "select",
+              "value": "id,full_name,phone"
+            },
+            {
+              "name": "order",
+              "value": "created_at.asc"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "435feecd-3f0b-46b5-a4d3-fd3d94155a00",
+      "name": "Supabase — GET pacientes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -480,
+        304
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Execute Workflow Trigger').first().json;\nconst inputItems = $input.all();\n\nlet patients = [];\n\nif (inputItems.length === 1 && Array.isArray(inputItems[0].json)) {\n  patients = inputItems[0].json;\n} else {\n  patients = inputItems\n    .map(item => item.json)\n    .filter(p => p && typeof p === 'object' && p.id && p.full_name);\n}\n\nconst session      = base.session ?? {};\nconst pendingCtx   = session.pending_context ?? {};\nconst step         = session.current_step ?? 'idle';\nconst interactive  = base.message?.interactive ?? {};\nconst text         = String(base.message?.text ?? '').trim();\nconst forceList    = base._pm_force_list === true;\nconst pmMode       = pendingCtx.pm_mode ?? null;\n\nconst normalize = (v) =>\n  String(v ?? '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .trim()\n    .replace(/\\s+/g, ' ');\n\nconst normalizedText = normalize(text);\nconst isInt = (v) => /^\\d+$/.test(String(v ?? '').trim());\n\nconst newWords = [\n  'nuevo', 'nueva', 'agregar', 'registrar',\n  'otro', 'otra', 'nuevo paciente', 'paciente nuevo'\n];\n\nconst wantsNew = newWords.includes(normalizedText);\n\nconst build = (patch = {}) => ({\n  json: {\n    ...base,\n    _patients: patients,\n    ...patch,\n  }\n});\n\nconst exactMatches = normalizedText\n  ? patients.filter(p => normalize(p.full_name) === normalizedText)\n  : [];\n\nconst partialMatches = normalizedText\n  ? patients.filter(p => normalize(p.full_name).includes(normalizedText))\n  : [];\n\n// 0) Si estamos esperando el nombre de un paciente NUEVO,\n// entonces crear directamente y no reinterpretar como selección/lista\nif (step === 'awaiting_patient_name' && pmMode === 'creating_new_patient' && text.length > 0) {\n  return [build({\n    _pm_action: 'create_patient',\n    _new_name: text\n  })];\n}\n\n// 1) Entrada inicial desde catálogo:\n// NO interpretar el texto actual como selección de paciente\nif (forceList) {\n  if (patients.length >= 1) {\n    return [build({ _pm_action: 'show_list' })];\n  }\n\n  return [build({ _pm_action: 'ask_name' })];\n}\n\n// 2) Botones directos\nif (interactive.id?.startsWith('CF:PAT:') && interactive.id !== 'CF:PAT:start') {\n  const patientId = interactive.id.replace('CF:PAT:', '');\n  const patient = patients.find(p => p.id === patientId) ?? null;\n\n  if (patient) {\n    return [build({ _pm_action: 'select_existing', _patient: patient })];\n  }\n\n  return [build({ _pm_action: 'show_list', _pm_error: 'patient_not_found' })];\n}\n\nif (interactive.id === 'CF:NEWPAT') {\n  return [build({ _pm_action: 'ask_name' })];\n}\n\n// 3) Selección por número cuando ya hay lista mostrada\nif (step === 'select_patient' && isInt(text)) {\n  const idx = Number(text) - 1;\n  const patient = idx >= 0 && idx < patients.length ? patients[idx] : null;\n\n  if (patient) {\n    return [build({ _pm_action: 'select_existing', _patient: patient })];\n  }\n\n  return [build({ _pm_action: 'show_list', _pm_error: 'invalid_selection' })];\n}\n\n// 4) Si explícitamente quiere registrar uno nuevo\nif (wantsNew) {\n  return [build({ _pm_action: 'ask_name' })];\n}\n\n// 5) Coincidencia exacta única\nif (exactMatches.length === 1) {\n  return [build({ _pm_action: 'select_existing', _patient: exactMatches[0] })];\n}\n\n// 6) Coincidencia exacta ambigua\nif (exactMatches.length > 1) {\n  return [build({\n    _pm_action: 'show_list',\n    _candidate_name: text || null,\n    _pm_error: 'ambiguous_exact_match'\n  })];\n}\n\n// 7) Coincidencia parcial única\nif (partialMatches.length === 1) {\n  return [build({ _pm_action: 'select_existing', _patient: partialMatches[0] })];\n}\n\n// 8) Coincidencia parcial ambigua\nif (partialMatches.length > 1) {\n  return [build({\n    _pm_action: 'show_list',\n    _candidate_name: text || null,\n    _pm_error: 'ambiguous_partial_match'\n  })];\n}\n\n// 9) Si hay varios pacientes, mostrar lista\nif (patients.length > 1) {\n  return [build({\n    _pm_action: 'show_list',\n    _candidate_name: text || null\n  })];\n}\n\n// 10) Si hay uno solo, seleccionarlo\nif (patients.length === 1) {\n  return [build({ _pm_action: 'select_existing', _patient: patients[0] })];\n}\n\n// 11) Si no hay pacientes\nif (patients.length === 0) {\n  if (step === 'awaiting_patient_name' && text.length > 0) {\n    return [build({ _pm_action: 'create_patient', _new_name: text })];\n  }\n\n  return [build({ _pm_action: 'ask_name' })];\n}\n\n// 12) Fallback\nreturn [build({ _pm_action: 'show_list' })];"
+      },
+      "id": "5218e4a8-e814-43ea-afa9-06f122b63e09",
+      "name": "Evaluar pacientes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._pm_action }}",
+              "rightValue": "create_patient",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "08a7eeb2-b1e2-489d-9790-f6d9a6daebce",
+      "name": "¿Crear paciente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/patients",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ tenant_id: $json.tenant.tenant_id, user_id: $json.user.user_id, full_name: $json._new_name, phone: $json.user.wa_number }) }}",
+        "options": {}
+      },
+      "id": "cda55f73-bd10-4dd4-9012-bc1b1bf4e657",
+      "name": "Supabase — INSERT paciente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        160
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base         = $('Evaluar pacientes').first().json;\nconst action       = base._pm_action ?? null;\nconst session      = base.session ?? {};\nconst patientState = base.patient ?? {};\nconst currentStep  = session.current_step ?? 'idle';\nconst activeServiceId = session.active_service_id ?? null;\nconst existingCtx  = session.pending_context ?? {};\n\nconst allInputItems = $input.all();\n\nconst buildSessionUpdate = (patch = {}) => ({\n  ...patch,\n});\n\nconst safePatients = Array.isArray(base._patients) ? base._patients : [];\n\nconst makeText = (body) => ({\n  type: 'text',\n  body,\n});\n\nconst firstValidCreatedPatient = () => {\n  for (const item of allInputItems) {\n    const raw = item?.json;\n\n    if (Array.isArray(raw)) {\n      const found = raw.find(p => p && typeof p === 'object' && p.id && p.full_name);\n      if (found) return found;\n    }\n\n    if (raw && typeof raw === 'object' && raw.id && raw.full_name) {\n      return raw;\n    }\n  }\n  return null;\n};\n\nlet patient = null;\n\nif (action === 'select_existing') {\n  patient = base._patient ?? null;\n} else if (action === 'create_patient') {\n  patient = firstValidCreatedPatient();\n}\n\n// ── 1) Pedir nombre ─────────────────────────────────────────────────\nif (action === 'ask_name') {\n  return [{\n    json: {\n      ...base,\n      session: {\n        ...session,\n        current_step: 'awaiting_patient_name',\n        pending_context: {\n          ...existingCtx,\n          pm_mode: 'creating_new_patient',\n        },\n      },\n      _session_update: buildSessionUpdate({\n        current_step: 'awaiting_patient_name',\n        pending_context: {\n          ...existingCtx,\n          pm_mode: 'creating_new_patient',\n        },\n      }),\n      _advance_to: 'outbound',\n      _outbound: makeText(\n        '👤 ¿A nombre de quién agendamos la cita?\\n\\nEscribe el nombre completo del paciente.'\n      ),\n    }\n  }];\n}\n\n// ── 2) Mostrar lista de pacientes ───────────────────────────────────\nif (action === 'show_list') {\n  if (safePatients.length === 0) {\n    return [{\n      json: {\n        ...base,\n        session: {\n          ...session,\n          current_step: 'awaiting_patient_name',\n        },\n        _session_update: buildSessionUpdate({\n          current_step: 'awaiting_patient_name',\n          pending_context: {\n            ...existingCtx,\n          },\n        }),\n        _advance_to: 'outbound',\n        _outbound: makeText(\n          '👤 No encontré pacientes registrados con este número.\\n\\nEscribe el nombre completo del paciente para registrarlo.'\n        ),\n      }\n    }];\n  }\n\n  const list = safePatients\n    .slice(0, 10)\n    .map((p, i) => `*${i + 1}.* ${p.full_name}`)\n    .join('\\n');\n\n  const extraHint =\n    safePatients.length > 10\n      ? '\\n\\n_Mostré los primeros 10 resultados. Responde con el número correspondiente o escribe *nuevo*._'\n      : '\\n\\nResponde con el número del paciente o escribe *nuevo* para registrar otro.';\n\n  return [{\n    json: {\n      ...base,\n      session: {\n        ...session,\n        current_step: 'select_patient',\n      },\n      _session_update: buildSessionUpdate({\n        current_step: 'select_patient',\n        pending_context: {\n          ...existingCtx,\n        },\n      }),\n      _advance_to: 'outbound',\n      _outbound: makeText(\n        '👤 ¿Para quién agendamos la cita?\\n\\n' +\n        list +\n        extraHint\n      ),\n    }\n  }];\n}\n\n// ── 3) Paciente resuelto correctamente ──────────────────────────────\nif (patient?.id) {\n  const cleanedCtx = { ...existingCtx };\n  delete cleanedCtx.pm_mode;\n\n  const nextStep  = activeServiceId ? 'select_slot' : 'select_service';\n  const advanceTo = activeServiceId ? 'availability' : 'catalog_engine';\n\n  return [{\n    json: {\n      ...base,\n      patient: {\n        ...patientState,\n        active_patient_id: patient.id,\n      },\n      session: {\n        ...session,\n        current_step: nextStep,\n        active_patient_id: patient.id,\n        pending_slot_start: null,\n        pending_slot_end: null,\n        pending_context: cleanedCtx,\n      },\n      _session_update: buildSessionUpdate({\n        current_step: nextStep,\n        active_patient_id: patient.id,\n        pending_slot_start: null,\n        pending_slot_end: null,\n        pending_context: cleanedCtx,\n      }),\n      _advance_to: advanceTo,\n    }\n  }];\n}\n\n// ── 4) Fallback de create_patient fallido ───────────────────────────\nif (action === 'create_patient') {\n  return [{\n    json: {\n      ...base,\n      session: {\n        ...session,\n        current_step: 'awaiting_patient_name',\n      },\n      _session_update: buildSessionUpdate({\n        current_step: 'awaiting_patient_name',\n        pending_context: {\n          ...existingCtx,\n        },\n      }),\n      _advance_to: 'outbound',\n      _outbound: makeText(\n        '⚠️ No pude registrar al paciente.\\n\\nEscribe nuevamente el nombre completo.'\n      ),\n    }\n  }];\n}\n\n// ── 5) Fallback general ─────────────────────────────────────────────\nreturn [{\n  json: {\n    ...base,\n    _advance_to: 'outbound',\n    _outbound: makeText(\n      '⚠️ No pude identificar al paciente correctamente.\\n\\nEscribe *hola* para reiniciar.'\n    ),\n  }\n}];"
+      },
+      "id": "5ac00ec6-6d5d-4c17-b684-6fc85a67b907",
+      "name": "Build Respuesta PM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  current_step:       $json._session_update?.current_step      ?? $json.session?.current_step ?? 'idle',\n  active_patient_id:  $json._session_update?.active_patient_id ?? $json.session?.active_patient_id ?? null,\n  active_service_id:  $json._session_update?.active_service_id ?? $json.session?.active_service_id ?? null,\n  pending_slot_start: $json._session_update?.pending_slot_start ?? null,\n  pending_slot_end:   $json._session_update?.pending_slot_end   ?? null,\n  pending_context:    $json._session_update?.pending_context    ?? $json.session?.pending_context ?? {},\n  updated_at:         new Date().toISOString()\n}) }}",
+        "options": {}
+      },
+      "id": "b18b4256-b15d-434b-88be-e21154abbf55",
+      "name": "Supabase — UPDATE session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        304
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Supabase PATCH devuelve {} vacío — recuperar desde Build Respuesta PM\nconst e = $('Build Respuesta PM').item.json;\nreturn [{ json: {\n  ...e,\n  _patients:       undefined,\n  _patient:        undefined,\n  _pm_action:      undefined,\n  _session_update: undefined,\n  _new_name:       undefined\n}}];"
+      },
+      "id": "f423393a-b1d2-4248-ada7-31938feba276",
+      "name": "Recover Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "7e49a6da-847c-4535-ba41-b798f7cd437b",
+      "name": "→ CF-14 Outbound Sender",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1456,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._advance_to }}",
+                    "rightValue": "catalog_engine",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "b35ea33d-0a40-41de-95dc-574a99e087c4"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c6046712-e787-427c-a6ba-27f57e0a1beb",
+                    "leftValue": "={{ $json._advance_to }}",
+                    "rightValue": "availability",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1152,
+        304
+      ],
+      "id": "c02c98f3-1af0-4e56-8d28-f00056f58859",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "FZhU5iobUVOHPOEG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/FZhU5iobUVOHPOEG",
+          "cachedResultName": "[CF] 11 - Availability Engine (Cal.com)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1456,
+        320
+      ],
+      "id": "488627eb-2c4a-4478-8b32-9874f0a232cd",
+      "name": "→ CF-11 Availability"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pre-filtro NLP: detectar si _new_name necesita extracción inteligente\nconst e      = $input.first().json;\nconst action = e._pm_action ?? '';\nconst name   = String(e._new_name ?? '').trim();\n\n// Solo activar cuando vamos a crear paciente y el texto parece compuesto\nif (action !== 'create_patient' || !name) {\n  return [{ json: { ...e, _needs_name_nlp: false } }];\n}\n\n// Patrones que indican que el usuario no escribió solo el nombre\nconst contextPatterns = [\n  /\\b(para|mi|es para|soy|se llama|le llama|de nombre|nombre es|llamo|llamar|llama)\\b/i,\n  /\\b(mamá|mama|papá|papa|hijo|hija|niño|niña|bebé|bebe|abuela|abuelo|esposo|esposa|pareja|hermano|hermana|sobrino|sobrina)\\b/i,\n  /^(el|la|un|una|es|soy|para)\\s/i\n];\n\nconst wordCount       = name.split(/\\s+/).filter(Boolean).length;\nconst hasContextWords = contextPatterns.some(p => p.test(name));\n\n// Activar NLP si: > 3 palabras, O contiene palabras de contexto\nconst needsNlp = wordCount > 3 || hasContextWords;\n\nreturn [{ json: { ...e, _needs_name_nlp: needsNlp, _raw_patient_text: name } }];"
+      },
+      "id": "83a0d9e7-cd50-4234-8018-af4013fdc1a6",
+      "name": "Evaluar NLP nombre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-c07nlp02",
+              "leftValue": "={{ $json._needs_name_nlp }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6c3fe0f9-90f7-42e1-ba89-d9fc13d46ee4",
+      "name": "IF — ¿NLP nombre?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Construir prompt para extracción de nombre de paciente\nconst envelope = $input.first().json;\nconst text     = String(envelope._raw_patient_text ?? envelope.message?.text ?? '').trim();\nconst clinic   = envelope.tenant?.name ?? 'la clínica';\n\nconst system =\n  `Eres un asistente médico de ${clinic}. ` +\n  `El usuario está registrando a un paciente para una cita. ` +\n  `Extrae el nombre propio de la persona del mensaje. ` +\n  `Ignora palabras de contexto como \"para\", \"mi\", \"mamá\", \"hijo\", etc. ` +\n  `Capitaliza correctamente (Primera letra mayúscula por palabra). ` +\n  `Responde ÚNICAMENTE con JSON sin texto adicional:\\n` +\n  `{\"name\": \"Nombre Apellido\", \"confidence\": 0.0}\\n` +\n  `Si el texto no contiene un nombre claro, usa null en \"name\".`;\n\nconst user = `Mensaje: \"${text}\"`;\n\nreturn [{ json: {\n  ...envelope,\n  _groq_messages: [{ role: 'system', content: system }, { role: 'user', content: user }]\n} }];"
+      },
+      "id": "42a93a17-1a6d-46b6-9384-58ee4cfbfa86",
+      "name": "Build GROQ Prompt — Nombre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 200, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
+        "options": {}
+      },
+      "id": "0d7dd2ab-eca1-4d70-b76f-124ea032eefa",
+      "name": "GROQ — Extraer nombre",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parsear respuesta GROQ y actualizar _new_name con nombre limpio\nconst envelope = $('Build GROQ Prompt — Nombre').first().json;\nconst groqResp = $input.first().json;\n\nlet extractedName = null;\nlet confidence    = 0;\n\ntry {\n  const content = String(groqResp?.choices?.[0]?.message?.content ?? '');\n  const cleaned = content.replace(/```json|```/g, '').trim();\n  const parsed  = JSON.parse(cleaned);\n  extractedName = parsed?.name ?? null;\n  confidence    = Number(parsed?.confidence ?? 0);\n} catch (_) { /* GROQ no disponible */ }\n\n// Validar: nombre razonable (2-50 chars, no vacío, confianza mínima)\nconst isValid = extractedName &&\n                typeof extractedName === 'string' &&\n                extractedName.trim().length >= 2 &&\n                extractedName.trim().length <= 60 &&\n                confidence >= 0.65;\n\nconst finalName = isValid\n  ? extractedName.trim()\n  : envelope._raw_patient_text;  // fallback: usar texto original\n\nreturn [{\n  json: {\n    ...envelope,\n    _new_name:            finalName,\n    _groq_messages:       undefined,\n    _needs_name_nlp:      false,\n    _raw_patient_text:    undefined,\n    _nlp_extracted_name:  isValid ? finalName : null,  // debug\n  }\n}];"
+      },
+      "id": "5561edec-c28a-438f-8112-e3936ac69e05",
+      "name": "Resolver NLP — Nombre",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "tv7WUNmbxaxGvWSN",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/tv7WUNmbxaxGvWSN",
+          "cachedResultName": "[CF] 08 - Catalog Engine"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "a52a3d02-a5e3-457e-816d-4651c1b075e3",
+      "name": "→ CF-08 Catalog Engine",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        48
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET pacientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET pacientes": {
+      "main": [
+        [
+          {
+            "node": "Evaluar pacientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar pacientes": {
+      "main": [
+        [
+          {
+            "node": "Evaluar NLP nombre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Crear paciente?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — INSERT paciente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Respuesta PM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — INSERT paciente": {
+      "main": [
+        [
+          {
+            "node": "Build Respuesta PM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Respuesta PM": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPDATE session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPDATE session": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "→ CF-08 Catalog Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-11 Availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar NLP nombre": {
+      "main": [
+        [
+          {
+            "node": "IF — ¿NLP nombre?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿NLP nombre?": {
+      "main": [
+        [
+          {
+            "node": "Build GROQ Prompt — Nombre",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "¿Crear paciente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build GROQ Prompt — Nombre": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Extraer nombre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Extraer nombre": {
+      "main": [
+        [
+          {
+            "node": "Resolver NLP — Nombre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver NLP — Nombre": {
+      "main": [
+        [
+          {
+            "node": "¿Crear paciente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "0a48b7a5-2837-4978-bbf0-b2fce0316145",
+  "activeVersionId": "0a48b7a5-2837-4978-bbf0-b2fce0316145",
+  "versionCounter": 39,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-14T19:03:27.765Z",
+      "createdAt": "2026-03-14T19:03:27.765Z",
+      "id": "P6taUA8rAHIyK4LW",
+      "name": "patient"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.596Z",
+      "createdAt": "2026-10-29T05:33:29.596Z",
+      "role": "workflow:owner",
+      "workflowId": "46pxTzNfW2DAMFJT",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 18d63bf6",
+    "description": ""
+  }
+}

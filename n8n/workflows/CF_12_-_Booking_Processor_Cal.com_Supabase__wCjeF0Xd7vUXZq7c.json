@@ -1,0 +1,613 @@
+{
+  "updatedAt": "2026-10-29T05:43:02.000Z",
+  "createdAt": "2026-04-20T15:08:29.559Z",
+  "id": "wCjeF0Xd7vUXZq7c",
+  "name": "[CF] 12 - Booking Processor (Cal.com + Supabase)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "41b11fed-4b92-41e1-961d-0f46111c4828",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1648,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope    = $input.first().json;\r\nconst session     = envelope.session ?? {};\r\nconst interactive = envelope.message?.interactive ?? {};\r\nconst pending     = session.pending_context ?? {};\r\n\r\nlet slotStart = null;\r\nlet slotEnd   = null;\r\n\r\nif (envelope._selected_slot?.start) {\r\n  slotStart = envelope._selected_slot.start;\r\n  slotEnd   = envelope._selected_slot.end ?? null;\r\n} else if (session.pending_slot_start) {\r\n  slotStart = session.pending_slot_start;\r\n  slotEnd   = session.pending_slot_end ?? null;\r\n} else if (interactive.id?.startsWith('CF:SLOT:')) {\r\n  slotStart = decodeURIComponent(interactive.id.replace('CF:SLOT:', ''));\r\n}\r\n\r\nconst patientId   = session.active_patient_id || envelope.patient?.active_patient_id || null;\r\nconst serviceId   = session.active_service_id || pending.active_service_id || null;\r\nconst providerId  = session.active_provider_id || pending.active_provider_id || pending.provider_id || null;\r\nconst eventTypeId =\r\n  pending.calcom_event_type_id ??\r\n  envelope._selected_provider?.calcom_event_type_id ??\r\n  envelope.tenant?.settings?.calcom_event_type_id ??\r\n  null;\r\n\r\nconst rescheduleUid    = pending.reschedule_uid ?? null;\r\nconst rescheduleApptId = pending.reschedule_appt_id ?? null;\r\nconst isReschedule     = !!rescheduleUid && !!rescheduleApptId;\r\n\r\nconst patientName  = pending.patient_name ?? envelope._patient_name ?? null;\r\nconst serviceName  = pending.service_name ?? envelope._service_name ?? null;\r\nconst providerName = pending.provider_name ?? envelope._provider_name ?? null;\r\nconst patientEmail = pending.patient_email ?? null;\r\n\r\nif (!slotStart)   return [{ json: { ...envelope, _booking_error: 'missing_slot' } }];\r\nif (!patientId)   return [{ json: { ...envelope, _booking_error: 'missing_patient' } }];\r\nif (!serviceId)   return [{ json: { ...envelope, _booking_error: 'missing_service' } }];\r\nif (!eventTypeId) return [{ json: { ...envelope, _booking_error: 'missing_event_type' } }];\r\n\r\nreturn [{\r\n  json: {\r\n    ...envelope,\r\n    _slot_start:         slotStart,\r\n    _slot_end:           slotEnd,\r\n    _patient_id:         patientId,\r\n    _service_id:         serviceId,\r\n    _provider_id:        providerId,\r\n    _provider_name:      providerName,\r\n    _event_type_id:      eventTypeId,\r\n    _is_reschedule:      isReschedule,\r\n    _reschedule_uid:     rescheduleUid,\r\n    _reschedule_appt_id: rescheduleApptId,\r\n    _patient_name:       patientName,\r\n    _service_name:       serviceName,\r\n    _patient_email:      patientEmail,\r\n    _booking_error:      null\r\n  }\r\n}];"
+      },
+      "id": "32c64f7c-6edf-41f7-b174-a81f4fe6d04a",
+      "name": "Validar datos booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1408,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ !$json._booking_error }}",
+              "rightValue": null,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b22206dd-c5ee-4477-9b71-8b0ac11773ef",
+      "name": "¿Datos válidos?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1168,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json._is_reschedule  ? 'https://api.cal.com/v2/bookings/' + $json._reschedule_uid + '/reschedule'  : 'https://api.cal.com/v2/bookings'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.CF_CALCOM_API_KEY}}"
+            },
+            {
+              "name": "cal-api-version",
+              "value": "2026-02-25"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify(\n  $json._is_reschedule\n    ? {\n        start: $json._slot_start,\n        reschedulingReason: 'User requested reschedule via WhatsApp'\n      }\n    : {\n        eventTypeId: parseInt($json._event_type_id),\n        start: $json._slot_start,\n        attendee: {\n          name: `${$json._patient_name ?? $json.user.wa_name ?? 'Paciente'} (${ $json._service_name ?? 'Servicio' })`,\n          email: (\n            $json._patient_email ??\n            'cristiansathiel@gmail.com'\n          ),\n          timeZone: $json.tenant.timezone ?? 'America/Mexico_City',\n          language: 'es'\n        },\n        metadata: {\n          tenant_id: $json.tenant.tenant_id,\n          patient_id: $json._patient_id,\n          service_id: $json._service_id,\n          service_name: $json._service_name ?? null,\n          provider_id: $json._provider_id ?? null,\n          provider_name: $json._provider_name ?? null,\n          wa_number: $json.user.wa_number\n        }\n      }\n) }}",
+        "options": {}
+      },
+      "id": "123b9abf-81af-400f-8534-9b042fde9e82",
+      "name": "Cal.com — POST booking",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -928,
+        256
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recuperar envelope y datos del booking creado\nconst envelope = $('Validar datos booking').item.json;\nconst raw      = $input.first().json;\n\n// Cal.com v2 devuelve { status: 'success', data: { uid, start, end, ... } }\nconst booking = raw.data ?? raw;\n\nif (!booking?.uid) {\n  return [{ json: { ...envelope, _booking_error: 'calcom_failed', _calcom_response: raw } }];\n}\n\nreturn [{ json: {\n  ...envelope,\n  _booking_uid:   booking.uid,\n  _booking_start: booking.start,\n  _booking_end:   booking.end,\n  _booking_data:  booking\n}}];"
+      },
+      "id": "5b92da14-e23d-4858-991d-e3ce1262acc9",
+      "name": "Recover booking data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -688,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  ...( $json._is_reschedule ? { id: $json._reschedule_appt_id } : {} ),\n  tenant_id: $json.tenant.tenant_id,\n  user_id: $json.user.user_id,\n  patient_id: $json._patient_id,\n  service_id: $json._service_id,\n  provider_id: $json._provider_id ?? null,\n  start_at: $json._booking_start,\n  end_at: $json._booking_end,\n  status: 'reserved',\n  calendar_event_id: $json._booking_uid\n}) }}",
+        "options": {}
+      },
+      "id": "57257337-b5c9-41dd-ae53-e625124b365c",
+      "name": "Supabase — INSERT appointment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -448,
+        256
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Recover booking data').first().json;\r\nconst raw      = $input.first().json;\r\nconst appt     = Array.isArray(raw) ? raw[0] : raw;\r\n\r\nconst tz  = envelope.tenant?.timezone ?? 'America/Mexico_City';\r\nconst dt  = new Date(envelope._booking_start);\r\nconst fmt = dt.toLocaleString('es-MX', {\r\n  timeZone: tz,\r\n  weekday: 'long',\r\n  year: 'numeric',\r\n  month: 'long',\r\n  day: 'numeric',\r\n  hour: '2-digit',\r\n  minute: '2-digit',\r\n  hour12: true\r\n});\r\n\r\nconst isReschedule   = envelope._is_reschedule === true;\r\nconst clinicName     = envelope.tenant?.name ?? 'la clínica';\r\nconst patientName    = envelope._patient_name ?? envelope.user?.wa_name ?? 'Paciente';\r\nconst serviceName    = envelope._service_name ?? 'tu servicio';\r\nconst providerName   = envelope._provider_name ?? null;\r\nconst providerLine   = providerName ? `\\n👨‍⚕️ *${providerName}*` : '';\r\nconst cancelPolicy   = envelope.tenant?.settings?.cancellation_policy\r\n  ?? 'Si necesitas mover tu cita, puedes escribir *cancelar* o *reagendar*.';\r\n\r\nconst deterministicBody = isReschedule\r\n  ? `✅ *Tu cita fue reagendada con éxito*\r\n\r\n📅 *${fmt}*${providerLine}\r\n\r\nHola, *${patientName}*. Tu cita para *${serviceName}* fue actualizada correctamente en *${clinicName}*.\r\n\r\n${cancelPolicy}\r\n\r\nSi necesitas algo más, con gusto te ayudamos.`\r\n  : `✅ *Tu cita quedó confirmada con éxito*\r\n\r\n📅 *${fmt}*${providerLine}\r\n\r\nHola, *${patientName}*. Tu cita para *${serviceName}* ha sido registrada correctamente en *${clinicName}*.\r\n\r\n${cancelPolicy}\r\n\r\nRecomendación general: si te es posible, llega unos minutos antes para atenderte con mayor comodidad.`;\r\n\r\nreturn [{\r\n  json: {\r\n    ...envelope,\r\n    patient: {\r\n      ...(envelope.patient ?? {}),\r\n      active_patient_id: null\r\n    },\r\n    session: {\r\n      ...envelope.session,\r\n      current_step: 'idle',\r\n      active_service_id: null,\r\n      active_provider_id: null,\r\n      active_patient_id: null,\r\n      pending_slot_start: null,\r\n      pending_slot_end: null,\r\n      pending_context: {}\r\n    },\r\n    _session_update: {\r\n      current_step: 'idle',\r\n      active_service_id: null,\r\n      active_provider_id: null,\r\n      active_patient_id: null,\r\n      pending_slot_start: null,\r\n      pending_slot_end: null,\r\n      pending_context: {}\r\n    },\r\n    _appointment_id: appt?.id ?? envelope._reschedule_appt_id ?? null,\r\n    _fallback_outbound: {\r\n      type: 'text',\r\n      body: deterministicBody\r\n    },\r\n    _outbound: {\r\n      type: 'text',\r\n      body: deterministicBody\r\n    },\r\n    _humanizer: {\r\n      operation: isReschedule ? 'reschedule_confirmation' : 'booking_confirmation',\r\n      clinic_name: clinicName,\r\n      user_name: envelope.user?.wa_name ?? 'Paciente',\r\n      patient_name: patientName,\r\n      service_name: serviceName,\r\n      provider_name: providerName,\r\n      formatted_datetime: fmt,\r\n      cancellation_policy: cancelPolicy,\r\n      base_message: deterministicBody\r\n    }\r\n  }\r\n}];"
+      },
+      "id": "0a3bc0ab-b35a-4b8f-b319-d019d93c4cf0",
+      "name": "Build Confirmación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        256
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({   current_step:       'idle',   active_service_id:  null,   active_provider_id: null,   active_patient_id:  null,   pending_slot_start: null,   pending_slot_end:   null,   pending_context:    {},   is_expired:         false,   updated_at:         new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "134ec4ee-c07d-4f8a-9bdb-52d049c9427f",
+      "name": "Supabase — Reset session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Build Confirmación').item.json;\nreturn [{ json: { ...e, _session_update:undefined, _booking_data:undefined } }];"
+      },
+      "id": "4541de77-bdaa-439e-89be-a0705cfb1cac",
+      "name": "Recover Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        256
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "d80dd8bb-a76d-4836-a0c1-7de5b3a33f68",
+      "name": "→ CF-14 Outbound Sender",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        512,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $input.first().json;\nconst msgs = {\n  missing_slot:       '⚠️ No pude identificar el horario seleccionado. Intenta nuevamente.',\n  missing_patient:    '⚠️ Falta seleccionar el paciente. Escribe *hola* para reiniciar.',\n  missing_service:    '⚠️ Falta seleccionar el servicio. Escribe *hola* para reiniciar.',\n  missing_event_type: '⚠️ Esta clínica no tiene configurada su agenda. Contáctanos.',\n  calcom_failed:      '⚠️ No pude reservar ese horario; es posible que se acabe de ocupar.\\n\\nEscribe *agendar* para ver horarios actualizados o *hola* para volver al menú.'\n};\nreturn [{ json: { ...e, _outbound: { type:'text', body: msgs[e._booking_error] ?? '⚠️ Error desconocido. Escribe *hola* para reiniciar.' } } }];"
+      },
+      "id": "2b4917f9-81d2-4d24-a971-93e71c60d0a1",
+      "name": "Build Error Booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "c75fc58a-7e16-4c56-bf7b-15a708e2f4f7",
+      "name": "→ CF-14 Error Outbound",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -688,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0.75,\n  max_tokens: 220,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un asistente de WhatsApp para una clínica médica. Tu tarea es redactar mensajes de confirmación de cita que suenen cálidos, humanos, profesionales y confiables. Debes conservar EXACTAMENTE la fecha y hora proporcionadas y no inventar ningún dato de la cita. Puedes mejorar el tono, hacer que el mensaje se sienta más cercano y agregar una breve recomendación general y segura, por ejemplo sobre puntualidad o llegar unos minutos antes. No des consejos médicos específicos, no hables de diagnósticos ni medicamentos, no exageres, no uses lenguaje robótico. El mensaje debe sentirse premium, natural y amable. Máximo 110 palabras. Devuelve solo el texto final, sin comillas, sin explicación y sin encabezados técnicos.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'booking_confirmation'}\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\nPaciente: ${$json._humanizer?.patient_name ?? $json._patient_name ?? $json.user?.wa_name ?? 'Paciente'}\nServicio: ${$json._humanizer?.service_name ?? $json._service_name ?? 'Consulta'}\\nMédico: ${$json._humanizer?.provider_name ?? $json._provider_name ?? ''}\nFecha y hora exactas: ${$json._humanizer?.formatted_datetime ?? ''}\nPolítica de cancelación: ${$json._humanizer?.cancellation_policy ?? $json.tenant?.settings?.cancellation_policy ?? 'Si necesitas mover tu cita, puedes escribir cancelar o reagendar.'}\nObjetivo: redactar un mensaje más humano y agradable para WhatsApp sin cambiar los hechos.\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "9b8c9572-159c-458d-9357-ad3117db7502",
+      "name": "Groq — Humanizar confirmación",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -80,
+        592
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Build Confirmación').item.json;\nconst groq = $input.first().json;\n\nlet aiText =\n  groq?.choices?.[0]?.message?.content ??\n  groq?.output?.[0]?.content?.[0]?.text ??\n  null;\n\nif (typeof aiText === 'string') {\n  aiText = aiText\n    .replace(/^[\"'\\s]+|[\"'\\s]+$/g, '')\n    .trim();\n}\n\nconst fallback = e._fallback_outbound ?? e._outbound ?? { type: 'text', body: '✅ Listo.' };\n\nconst finalBody =\n  aiText && aiText.length >= 15\n    ? aiText\n    : fallback.body;\n\nreturn [{\n  json: {\n    ...e,\n    _outbound: {\n      type: 'text',\n      body: finalBody\n    },\n    _fallback_outbound: undefined,\n    _humanizer: undefined\n  }\n}];"
+      },
+      "id": "0997e7be-392a-4547-b162-7bf8dbb23538",
+      "name": "Resolve Confirmación Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        256
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cf12-booking-ok",
+              "leftValue": "={{ !$json._booking_error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ab6f11e6-f0f5-484c-b177-8e080c64df84",
+      "name": "¿Booking creado en Cal.com?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -568,
+        416
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validar datos booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar datos booking": {
+      "main": [
+        [
+          {
+            "node": "¿Datos válidos?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Datos válidos?": {
+      "main": [
+        [
+          {
+            "node": "Cal.com — POST booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cal.com — POST booking": {
+      "main": [
+        [
+          {
+            "node": "Recover booking data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover booking data": {
+      "main": [
+        [
+          {
+            "node": "¿Booking creado en Cal.com?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — INSERT appointment": {
+      "main": [
+        [
+          {
+            "node": "Build Confirmación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Confirmación": {
+      "main": [
+        [
+          {
+            "node": "Groq — Humanizar confirmación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Reset session": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Booking": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Error Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq — Humanizar confirmación": {
+      "main": [
+        [
+          {
+            "node": "Resolve Confirmación Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Confirmación Final": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Reset session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Booking creado en Cal.com?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — INSERT appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "cc366010-453f-43e5-b505-18baaf6c60de",
+  "activeVersionId": "cc366010-453f-43e5-b505-18baaf6c60de",
+  "versionCounter": 31,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-16T21:16:33.248Z",
+      "createdAt": "2026-03-16T21:16:33.248Z",
+      "id": "QTlCtncSqhn40i9q",
+      "name": "calcom"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.718Z",
+      "createdAt": "2026-10-29T05:33:29.718Z",
+      "role": "workflow:owner",
+      "workflowId": "wCjeF0Xd7vUXZq7c",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 56bfc7e8",
+    "description": ""
+  }
+}

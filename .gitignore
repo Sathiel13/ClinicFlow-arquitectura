@@ -1,0 +1,26 @@
+# Secretos
+.env
+.env.*
+!.env.example
+
+# Datos de los contenedores (bases, sesiones de WhatsApp, credenciales cifradas)
+n8n_data/
+n8n_data_backup_*/
+respaldo n8n/
+postgres_data/
+evolution_instances/
+evolution_store/
+caddy_data/
+caddy_config/
+backups/
+
+# Exportaciones crudas de n8n (contienen llaves). Lo versionado vive en n8n/workflows (ya limpio)
+n8n_exports/
+
+# Datos personales reales (doctores, clínicas). Solo local o en un repo PRIVADO
+privado/
+
+*.log
+.DS_Store
+.idea/
+.vscode/

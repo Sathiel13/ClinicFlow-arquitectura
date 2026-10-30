@@ -1,0 +1,296 @@
+{
+  "updatedAt": "2026-10-29T05:36:32.000Z",
+  "createdAt": "2026-04-20T14:35:51.963Z",
+  "id": "78SjNK1nbbRFE6Op",
+  "name": "[CF] 05 - Session Expiration Guard",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ddecc908-7444-4d80-911d-95839da7cff5",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $input.first().json;\nconst session  = envelope.session;\nif (!session?.session_id) return [{ json: { ...envelope, _expired: false } }];\nconst last    = new Date(session.last_interaction_at ?? Date.now());\nconst mins    = (Date.now() - last) / 60000;\nconst expired = mins > 30 && session.current_step !== 'idle';\nreturn [{ json: { ...envelope, _expired: expired, _minutes_inactive: Math.round(mins) } }];"
+      },
+      "id": "9f01661f-bb04-4ff2-b7bf-730e8197fa1c",
+      "name": "Evaluar expiración",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._expired }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ecd14c61-f355-4369-a96a-3a27d0b147d8",
+      "name": "¿Sesión expirada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co\n/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ is_expired: true, current_step: \"idle\", active_service_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {}, updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "b1d93c5c-b947-4fe3-b23e-df74d889671b",
+      "name": "Supabase — Reset sesión",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Evaluar expiración').item.json;\nconst welcome  = envelope.tenant?.settings?.welcome_message ?? 'Hola de nuevo 👋';\nreturn [{ json: {\n  ...envelope,\n  session: { ...envelope.session, current_step: 'idle', is_expired: true,\n    active_service_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {} },\n  _outbound: {\n    type: 'buttons',\n    body: '⏰ Tu sesión anterior expiró.\\n\\n' + welcome,\n    buttons: [\n      { id: 'CF:MENU',  title: '📋 Ver menú' },\n      { id: 'CF:START', title: '🔄 Empezar'  }\n    ]\n  }\n}}];"
+      },
+      "id": "e1240dd7-f957-48de-9307-4da99dfe23e5",
+      "name": "Recover + Reset Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "e3156fc4-be26-48e0-b71b-64acae918088",
+      "name": "→ CF-14 Notificar expiración",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "3LTDnXPdGt04TJSd",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/3LTDnXPdGt04TJSd",
+          "cachedResultName": "[CF] 06 - Router (State + Button-first)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "7c920949-12ae-4b7a-ad62-5d1a3d497738",
+      "name": "→ CF-06 Router",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        288
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Evaluar expiración",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar expiración": {
+      "main": [
+        [
+          {
+            "node": "¿Sesión expirada?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Sesión expirada?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Reset sesión",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-06 Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Reset sesión": {
+      "main": [
+        [
+          {
+            "node": "Recover + Reset Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover + Reset Envelope": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Notificar expiración",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "5bcc5917-cc1f-4587-a32c-34f279fa5990",
+  "activeVersionId": "5bcc5917-cc1f-4587-a32c-34f279fa5990",
+  "versionCounter": 35,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-14T19:18:36.196Z",
+      "createdAt": "2026-03-14T19:18:36.196Z",
+      "id": "HJe3rbyPXvLl0fK7",
+      "name": "session"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.602Z",
+      "createdAt": "2026-10-29T05:33:29.602Z",
+      "role": "workflow:owner",
+      "workflowId": "78SjNK1nbbRFE6Op",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 0eeee7e6",
+    "description": ""
+  }
+}

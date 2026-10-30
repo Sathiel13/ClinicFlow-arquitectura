@@ -1,0 +1,117 @@
+# ClinicFlow — producción (VPS)
+# Uso en el servidor (carpeta /opt/clinicflow):
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d
+# Solo Caddy publica puertos (80/443). n8n, Evolution y Postgres quedan en la red interna.
+
+services:
+  caddy:
+    image: caddy:2.10
+    container_name: clinicflow-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      N8N_DOMAIN: ${N8N_DOMAIN}
+      EVO_DOMAIN: ${EVO_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+    networks: [clinicflow_net]
+
+  n8n:
+    image: n8nio/n8n:2.11.3
+    container_name: clinicflow-n8n
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - N8N_HOST=${N8N_DOMAIN}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - N8N_EDITOR_BASE_URL=https://${N8N_DOMAIN}/
+      - WEBHOOK_URL=https://${N8N_DOMAIN}/
+      - N8N_PROXY_HOPS=1
+      - N8N_SECURE_COOKIE=true
+      - GENERIC_TIMEZONE=America/Mexico_City
+      - TZ=America/Mexico_City
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      # Los workflows leen las llaves CF_* con $env; n8n 2.x lo bloquea por defecto
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # No acumular ejecuciones para siempre
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+      - N8N_LOG_FILE_SIZE_MAX=16
+      - N8N_LOG_FILE_COUNT_MAX=3
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+    networks: [clinicflow_net]
+
+  postgres:
+    image: postgres:16
+    container_name: clinicflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${EVO_DB_NAME}
+      POSTGRES_USER: ${EVO_DB_USER}
+      POSTGRES_PASSWORD: ${EVO_DB_PASSWORD}
+      TZ: America/Mexico_City
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${EVO_DB_USER} -d ${EVO_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [clinicflow_net]
+
+  evolution_api:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: clinicflow-evolution
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: 8080
+      SERVER_URL: https://${EVO_DOMAIN}
+      AUTHENTICATION_TYPE: apikey
+      AUTHENTICATION_API_KEY: ${CF_EVO_API_KEY}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: "postgresql://${EVO_DB_USER}:${EVO_DB_PASSWORD}@postgres:5432/${EVO_DB_NAME}?schema=public"
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_exchange
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_LABELS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "true"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      WEBSOCKET_ENABLED: "false"
+      CONFIG_SESSION_PHONE_CLIENT: "ClinicFlow"
+      CONFIG_SESSION_PHONE_NAME: "Chrome"
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: "30"
+      # Webhook global: todas las instancias mandan sus mensajes a n8n por la red interna
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_GLOBAL_URL: "http://clinicflow-n8n:5678/webhook/evolution/inbound"
+      WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS: "false"
+      WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
+      LOG_LEVEL: WARN
+      LOG_BAILEYS: error
+      TZ: America/Mexico_City
+    volumes:
+      - ./evolution_instances:/evolution/instances
+    networks: [clinicflow_net]
+
+networks:
+  clinicflow_net:
+    name: clinicflow_net

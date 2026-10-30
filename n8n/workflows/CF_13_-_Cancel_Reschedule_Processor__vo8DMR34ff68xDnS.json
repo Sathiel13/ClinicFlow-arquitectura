@@ -1,0 +1,1109 @@
+{
+  "updatedAt": "2026-10-29T05:38:18.000Z",
+  "createdAt": "2026-04-20T15:09:32.549Z",
+  "id": "vo8DMR34ff68xDnS",
+  "name": "[CF] 13 - Cancel / Reschedule Processor",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "db856a30-26af-4758-914a-ebbc76fa22f9",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1808,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope    = $input.first().json;\nconst interactive = envelope.message?.interactive ?? {};\nconst text        = String(envelope.message?.text ?? '').toLowerCase().trim();\n\nlet action        = null;\nlet appointmentId = null;\n\nif (interactive.id?.startsWith('CF:CANCEL:')) {\n  action        = 'cancel';\n  appointmentId = interactive.id.replace('CF:CANCEL:', '');\n} else if (interactive.id?.startsWith('CF:RESCH:')) {\n  action        = 'reschedule';\n  appointmentId = interactive.id.replace('CF:RESCH:', '');\n} else if (envelope._cr_appointment_id) {\n  action        = envelope._cr_action ?? null;\n  appointmentId = envelope._cr_appointment_id;\n} else if (['cancelar','cancela','cancel','baja','eliminar cita'].some(w => text.includes(w))) {\n  action = 'cancel_lookup';\n} else if (['reagendar','reprogramar','cambiar cita','mover cita','reschedule'].some(w => text.includes(w))) {\n  action = 'reschedule_lookup';\n}\n\nif (!action) {\n  return [{ json: { ...envelope, _cr_error: 'no_action_detected' } }];\n}\n\nreturn [{ json: { ...envelope, _cr_action: action, _cr_appointment_id: appointmentId ?? null } }];"
+      },
+      "id": "a8b76e49-3aec-436a-9652-25970df02f8f",
+      "name": "Detectar acción",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._cr_appointment_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0a941ce8-9fc5-4b39-ba10-6b5a8c08375e",
+      "name": "¿Tiene appointment_id?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1328,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json._cr_appointment_id }}"
+            },
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "select",
+              "value": "id,start_at,end_at,status,calendar_event_id,service_id,patient_id"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "19ba112a-a4e0-4627-b18e-c676a4e1900a",
+      "name": "Supabase — GET appointment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1088,
+        384
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Detectar acción').item.json;\nconst raw      = $input.first().json;\nconst appt     = Array.isArray(raw) ? raw[0] : raw;\n\nif (!appt?.id || !appt?.calendar_event_id) {\n  return [{ json: { ...envelope, _cr_error: 'appointment_not_found' } }];\n}\n\nreturn [{ json: {\n  ...envelope,\n  _cr_booking_uid: appt.calendar_event_id,\n  _cr_appt: appt\n} }];"
+      },
+      "id": "ec9c637a-d82f-4157-b42d-ff85416add1d",
+      "name": "Recover appointment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._cr_action }}",
+              "rightValue": "cancel",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6c67362c-5b02-41e4-9412-cb0abac3652a",
+      "name": "¿Cancelar o Reagendar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -608,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.cal.com/v2/bookings/{{$json._cr_booking_uid}}/cancel",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.CF_CALCOM_API_KEY}}"
+            },
+            {
+              "name": "cal-api-version",
+              "value": "2026-02-25"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"cancellationReason\": \"User requested cancellation\"\n}",
+        "options": {}
+      },
+      "id": "53c3b1b5-e89f-449c-8799-7a7d5dceaeae",
+      "name": "Cal.com — Cancel booking",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -368,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $('Recover appointment').item.json._cr_appt.id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ status: 'cancelled', cancel_reason: 'Cancelado por paciente vía WhatsApp', updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "fc7818f7-b421-4b7c-a462-75aea853d013",
+      "name": "Supabase — UPDATE cancelled",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -128,
+        272
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Recover appointment').item.json;\n\nconst tz  = e.tenant?.timezone ?? 'America/Mexico_City';\nconst dt  = e._cr_appt?.start_at ? new Date(e._cr_appt.start_at) : null;\nconst fmt = dt\n  ? dt.toLocaleString('es-MX', {\n      timeZone: tz,\n      weekday: 'long',\n      day: 'numeric',\n      month: 'long',\n      hour: '2-digit',\n      minute: '2-digit',\n      hour12: true\n    })\n  : null;\n\nconst deterministicBody = fmt\n  ? `✅ Tu cita del *${fmt}* ha sido cancelada correctamente.\\n\\nSi necesitas agendar una nueva cita, escribe *hola*. 😊`\n  : `✅ Tu cita ha sido cancelada correctamente.\\n\\nSi necesitas agendar una nueva cita, escribe *hola*. 😊`;\n\nreturn [{\n  json: {\n    ...e,\n    session: {\n      ...e.session,\n      current_step: 'idle',\n      pending_context: {},\n      active_service_id: null\n    },\n    _cr_appt: undefined,\n    _cr_booking_uid: undefined,\n    _cr_action: undefined,\n    _fallback_outbound: { type: 'text', body: deterministicBody },\n    _outbound: { type: 'text', body: deterministicBody },\n    _humanizer: {\n      operation: 'cancel_confirmation',\n      clinic_name: e.tenant?.name ?? 'la clínica',\n      user_name: e.user?.wa_name ?? 'Paciente',\n      formatted_datetime: fmt ?? '',\n      base_message: deterministicBody\n    }\n  }\n}];"
+      },
+      "id": "f192b687-37be-4808-9be7-6c73557c3790",
+      "name": "Build Cancelación OK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Recover appointment').item.json;\n\nreturn [{\n  json: {\n    ...e,\n    patient: {\n      ...(e.patient ?? {}),\n      active_patient_id: e._cr_appt?.patient_id ?? e.patient?.active_patient_id ?? null\n    },\n    session: {\n      ...e.session,\n      current_step: 'select_slot',\n      active_service_id: e._cr_appt?.service_id ?? e.session?.active_service_id ?? null,\n      active_patient_id: e._cr_appt?.patient_id ?? e.session?.active_patient_id ?? null,\n      pending_context: {\n        reschedule_uid: e._cr_booking_uid,\n        reschedule_appt_id: e._cr_appt.id\n      }\n    },\n    _session_update: {\n      current_step: 'select_slot',\n      active_service_id: e._cr_appt?.service_id ?? e.session?.active_service_id ?? null,\n      active_patient_id: e._cr_appt?.patient_id ?? e.session?.active_patient_id ?? null,\n      pending_context: {\n        reschedule_uid: e._cr_booking_uid,\n        reschedule_appt_id: e._cr_appt.id\n      }\n    }\n  }\n}];"
+      },
+      "id": "015e8603-3e30-4d0d-a5b1-d3c3e982a6e7",
+      "name": "Prep Reagendar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  current_step: $json._session_update.current_step,\n  active_service_id: $json._session_update.active_service_id ?? null,\n  active_patient_id: $json._session_update.active_patient_id ?? null,\n  pending_context: $json._session_update.pending_context,\n  updated_at: new Date().toISOString()\n}) }}",
+        "options": {}
+      },
+      "id": "1ce31dfc-1252-46d1-b5b6-c06d3b2221bb",
+      "name": "Supabase — UPDATE session (Reagenda)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -128,
+        480
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Prep Reagendar').item.json;\nreturn [{ json: { ...e, _session_update: undefined } }];"
+      },
+      "id": "b2c4647b-b56d-4a5d-b54a-8e81e5851930",
+      "name": "Recover Envelope Reagenda",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "user_id",
+              "value": "=eq.{{ $json.user.user_id }}"
+            },
+            {
+              "name": "status",
+              "value": "=in.(reserved,confirmed)"
+            },
+            {
+              "name": "select",
+              "value": "id,start_at,end_at,status,calendar_event_id,patient_id,patients(full_name)"
+            },
+            {
+              "name": "order",
+              "value": "start_at.asc"
+            },
+            {
+              "name": "limit",
+              "value": "5"
+            },
+            {
+              "name": "start_at",
+              "value": "=gte.{{ new Date().toISOString() }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7dbeebdc-d7d0-4d78-853b-ff3f5c9c2e54",
+      "name": "Supabase — GET citas activas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1088,
+        704
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Detectar acción').item.json;\nconst items    = $input.all().map(i => i.json);\nconst action   = envelope._cr_action;\n\nconst appts = items.flatMap(item => {\n  if (Array.isArray(item)) return item;\n  if (item?.id && item?.start_at) return [item];\n  return [];\n}).filter(a => a.id && a.start_at);\n\nif (appts.length === 0) {\n  return [{\n    json: {\n      ...envelope,\n      session: { ...envelope.session, current_step: 'idle', pending_context: {} },\n      _session_update: { current_step: 'idle', pending_context: {} },\n      _outbound: {\n        type:'text',\n        body:'ℹ️ No encontré citas próximas para tu número.\\n\\nEscribe *hola* para volver al menú.'\n      }\n    }\n  }];\n}\n\nconst tz       = envelope.tenant?.timezone ?? 'America/Mexico_City';\nconst verb     = action === 'cancel_lookup' ? 'cancelar' : 'reagendar';\nconst nextStep = action === 'cancel_lookup' ? 'select_cancel_appointment' : 'select_reschedule_appointment';\n\nconst catalogText = appts.map((a, i) => {\n  const dt  = new Date(a.start_at);\n  const fmt = dt.toLocaleString('es-MX', {\n    timeZone: tz,\n    weekday:'short',\n    month:'short',\n    day:'numeric',\n    hour:'2-digit',\n    minute:'2-digit',\n    hour12:true\n  });\n  // Nombre del paciente desde el JOIN (patients.full_name)\n  const patName = a.patients?.full_name ?? null;\n  const patLabel = patName ? ` — ${patName}` : '';\n  return `• ${i + 1}. ${fmt}${patLabel}`;\n}).join('\\n');\n\nconst intro = envelope._appointment_selection_invalid\n  ? '⚠️ No pude identificar la cita elegida.\\n\\n'\n  : '';\n\nconst pendingContext = {\n  appointments_for_action: appts.map(a => ({\n    id: a.id,\n    start_at: a.start_at,\n    calendar_event_id: a.calendar_event_id,\n    status: a.status,\n    patient_name: a.patients?.full_name ?? null\n  })),\n  appointments_action: action\n};\n\nreturn [{\n  json: {\n    ...envelope,\n    session: { ...envelope.session, current_step: nextStep, pending_context: pendingContext },\n    _session_update: { current_step: nextStep, pending_context: pendingContext },\n    _outbound: {\n      type: 'text',\n      body: `${intro}¿Cuál cita deseas ${verb}?\\n\\n*Citas activas*\\n${catalogText}\\n\\n_Responde con el número de la cita._`\n    }\n  }\n}];"
+      },
+      "id": "adf58699-a7dd-44d7-ba6c-24641810b92c",
+      "name": "Build Lista Citas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ current_step: $json._session_update.current_step, pending_context: $json._session_update.pending_context, updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "8eb12228-7e5f-4916-a3f0-ae4db4c31ba9",
+      "name": "Supabase — UPDATE session (Lista)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -608,
+        704
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Build Lista Citas').item.json;\nreturn [{ json: { ...e, _session_update: undefined } }];"
+      },
+      "id": "b703dd1b-9e43-4aef-b52c-a3354238863b",
+      "name": "Recover Envelope Lista",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "FZhU5iobUVOHPOEG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/FZhU5iobUVOHPOEG",
+          "cachedResultName": "[CF] 11 - Availability Engine (Cal.com)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "97db0cf4-526f-43d8-a13f-2367104a1b69",
+      "name": "→ CF-11 Availability",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        432,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "6f615a16-fddc-4e9f-8046-42a29c87837d",
+      "name": "→ CF-14 Outbound Sender",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        784,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "f9ca64c3-e7e8-4789-9bfd-de339198b63c",
+      "name": "→ CF-14 Lista Citas",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -128,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $('Detectar acción').item.json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  current_step: 'idle',\n  active_service_id: null,\n  pending_context: {},\n  updated_at: new Date().toISOString()\n}) }}",
+        "options": {}
+      },
+      "id": "255d1dc7-f277-44e1-acf2-87daff5ef90f",
+      "name": "Supabase — UPDATE cancelled1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}} "
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0.45,\n  max_tokens: 120,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un redactor de mensajes transaccionales para WhatsApp de una clínica. Humaniza el mensaje sin alterar hechos. Reglas obligatorias: conserva EXACTAMENTE la fecha y hora dadas, no inventes información, usa español cálido y profesional, máximo 60 palabras, devuelve solo el texto final.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'cancel_confirmation'}\\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\\nFecha y hora exactas: ${$json._humanizer?.formatted_datetime ?? ''}\\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "909c4ed0-3341-4081-a845-4a90e43d7b60",
+      "name": "Groq — Humanizar cancelación",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        272
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Build Cancelación OK').item.json;\nconst groq = $input.first().json;\n\nlet aiText =\n  groq?.choices?.[0]?.message?.content ??\n  groq?.output?.[0]?.content?.[0]?.text ??\n  null;\n\nif (typeof aiText === 'string') aiText = aiText.trim();\n\nconst fallback = e._fallback_outbound ?? e._outbound ?? { type: 'text', body: '✅ Listo.' };\n\nreturn [{\n  json: {\n    ...e,\n    _outbound: {\n      type: 'text',\n      body: aiText && aiText.length >= 15 ? aiText : fallback.body\n    },\n    _fallback_outbound: undefined,\n    _humanizer: undefined\n  }\n}];"
+      },
+      "id": "717714b4-e46d-4813-a9a6-4e9831ea94ff",
+      "name": "Resolve Cancelación Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $input.first().json;\n\nconst deterministicBody = 'Perfecto. Ya encontré tu cita y voy a mostrarte nuevos horarios disponibles para que elijas el que mejor te acomode.';\n\nreturn [{\n  json: {\n    ...e,\n    _fallback_outbound: { type: 'text', body: deterministicBody },\n    _outbound: { type: 'text', body: deterministicBody },\n    _humanizer: {\n      operation: 'reschedule_bridge',\n      clinic_name: e.tenant?.name ?? 'la clínica',\n      user_name: e.user?.wa_name ?? 'Paciente',\n      formatted_datetime: '',\n      base_message: deterministicBody\n    }\n  }\n}];"
+      },
+      "id": "786bf420-88e2-4aeb-aa5a-a662cc41df10",
+      "name": "Build Reagenda Puente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}} "
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0.5,\n  max_tokens: 90,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un redactor de mensajes breves para WhatsApp de una clínica. Humaniza el mensaje sin cambiar la intención ni inventar información. Usa español cálido y profesional, máximo 35 palabras, devuelve solo el texto final.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'reschedule_bridge'}\\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "afd176df-4365-4e05-9627-5a83694ffe7a",
+      "name": "Groq — Humanizar puente reagenda",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        480
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Build Reagenda Puente').item.json;\nconst groq = $input.first().json;\n\nlet aiText =\n  groq?.choices?.[0]?.message?.content ??\n  groq?.output?.[0]?.content?.[0]?.text ??\n  null;\n\nif (typeof aiText === 'string') aiText = aiText.trim();\n\nconst fallback = e._fallback_outbound ?? e._outbound ?? { type: 'text', body: 'Voy a mostrarte nuevos horarios.' };\n\nreturn [{\n  json: {\n    ...e,\n    _outbound: {\n      type: 'text',\n      body: aiText && aiText.length >= 12 ? aiText : fallback.body\n    },\n    _fallback_outbound: undefined,\n    _humanizer: undefined\n  }\n}];"
+      },
+      "id": "08c431fb-5b9c-442e-bf0b-22a6452432ea",
+      "name": "Resolve Puente Reagenda Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "1b9d6dca-3f21-46a1-b97d-f0b7f01e4072",
+      "name": "→ CF-14 Puente Reagenda",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Resolve Puente Reagenda Final').item.json;\nreturn [{ json: { ...e } }];"
+      },
+      "id": "0ae0c569-c44b-45bb-8667-80403eb0597f",
+      "name": "Recover Envelope After Puente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Detectar acción",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detectar acción": {
+      "main": [
+        [
+          {
+            "node": "¿Tiene appointment_id?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Tiene appointment_id?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — GET citas activas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET appointment": {
+      "main": [
+        [
+          {
+            "node": "Recover appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover appointment": {
+      "main": [
+        [
+          {
+            "node": "¿Cancelar o Reagendar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Cancelar o Reagendar?": {
+      "main": [
+        [
+          {
+            "node": "Cal.com — Cancel booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Reagendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cal.com — Cancel booking": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPDATE cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPDATE cancelled": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPDATE cancelled1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Cancelación OK": {
+      "main": [
+        [
+          {
+            "node": "Groq — Humanizar cancelación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Reagendar": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPDATE session (Reagenda)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPDATE session (Reagenda)": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope Reagenda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope Reagenda": {
+      "main": [
+        [
+          {
+            "node": "Build Reagenda Puente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET citas activas": {
+      "main": [
+        [
+          {
+            "node": "Build Lista Citas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Lista Citas": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPDATE session (Lista)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPDATE session (Lista)": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope Lista",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope Lista": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Lista Citas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPDATE cancelled1": {
+      "main": [
+        [
+          {
+            "node": "Build Cancelación OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq — Humanizar cancelación": {
+      "main": [
+        [
+          {
+            "node": "Resolve Cancelación Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Cancelación Final": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reagenda Puente": {
+      "main": [
+        [
+          {
+            "node": "Groq — Humanizar puente reagenda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq — Humanizar puente reagenda": {
+      "main": [
+        [
+          {
+            "node": "Resolve Puente Reagenda Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Puente Reagenda Final": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Puente Reagenda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "→ CF-14 Puente Reagenda": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope After Puente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope After Puente": {
+      "main": [
+        [
+          {
+            "node": "→ CF-11 Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "e7739dfe-405f-4ed0-b4e8-8594940fd896",
+  "activeVersionId": "e7739dfe-405f-4ed0-b4e8-8594940fd896",
+  "versionCounter": 45,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-16T21:16:33.248Z",
+      "createdAt": "2026-03-16T21:16:33.248Z",
+      "id": "QTlCtncSqhn40i9q",
+      "name": "calcom"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.710Z",
+      "createdAt": "2026-10-29T05:33:29.710Z",
+      "role": "workflow:owner",
+      "workflowId": "vo8DMR34ff68xDnS",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 92443c06",
+    "description": ""
+  }
+}

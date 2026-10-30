@@ -1,0 +1,555 @@
+{
+  "updatedAt": "2026-10-29T05:37:56.000Z",
+  "createdAt": "2026-04-20T14:30:27.074Z",
+  "id": "rXLtBmt9wmCC7oow",
+  "name": "[CF] 01EA - Evolution Audio Transcribe",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "22af25d3-84ba-436c-a21a-9e9158eb35c8",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -688,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolver audio desde el payload crudo de Evolution.\n// Estrategia:\n// 1) detectar audio/ptt\n// 2) si viene base64, preferir file upload a Groq (más robusto)\n// 3) si solo viene URL, usar el parámetro multipart `url`\n// 4) si no hay fuente utilizable, salir sin romper la ruta principal\n\nconst item = $input.first().json;\nconst body = item._raw_body ?? item.body ?? {};\nconst data = body?.data ?? {};\nconst msg  = data?.message ?? {};\nconst messageType = String(data?.messageType ?? '');\n\nconst audioMsg =\n  msg?.audioMessage ??\n  msg?.pttMessage ??\n  msg?.documentWithCaptionMessage?.message?.audioMessage ??\n  null;\n\nconst mimeType =\n  audioMsg?.mimetype ??\n  audioMsg?.mimeType ??\n  data?.mimetype ??\n  'audio/ogg';\n\nconst mediaUrl =\n  audioMsg?.url ??\n  audioMsg?.mediaUrl ??\n  audioMsg?.downloadUrl ??\n  audioMsg?.directUrl ??\n  data?.mediaUrl ??\n  data?.url ??\n  null;\n\nlet base64Audio =\n  audioMsg?.base64 ??\n  audioMsg?.fileBase64 ??\n  data?.base64 ??\n  data?.mediaBase64 ??\n  null;\n\nif (typeof base64Audio === 'string' && base64Audio.startsWith('data:')) {\n  const comma = base64Audio.indexOf(',');\n  if (comma > -1) base64Audio = base64Audio.slice(comma + 1);\n}\n\nconst prompt =\n  'Audio de WhatsApp en español de pacientes de una clínica dental. ' +\n  'Transcribe con ortografía clara y conserva nombres propios, servicios y horarios.';\n\nlet sourceKind = null;\nif (typeof base64Audio === 'string' && base64Audio.length > 100) {\n  sourceKind = 'base64';\n} else if (typeof mediaUrl === 'string' && mediaUrl.startsWith('http')) {\n  sourceKind = 'url';\n}\n\nconst extByMime = {\n  'audio/ogg': 'ogg',\n  'audio/opus': 'ogg',\n  'audio/webm': 'webm',\n  'audio/mpeg': 'mp3',\n  'audio/mp3': 'mp3',\n  'audio/mp4': 'mp4',\n  'audio/x-m4a': 'm4a',\n  'audio/m4a': 'm4a',\n  'audio/wav': 'wav',\n  'audio/x-wav': 'wav'\n};\n\nconst fileExt = extByMime[mimeType] ?? 'ogg';\n\nreturn [{\n  json: {\n    ...item,\n    _audio_message_type: messageType,\n    _audio_source_kind: sourceKind,\n    _audio_url: sourceKind === 'url' ? mediaUrl : null,\n    _audio_base64: sourceKind === 'base64' ? base64Audio : null,\n    _audio_mime_type: mimeType,\n    _audio_file_ext: fileExt,\n    _audio_prompt: prompt,\n    _audio_transcription_error: sourceKind ? null : 'missing_audio_source'\n  }\n}];"
+      },
+      "id": "00154214-4e75-4ca7-9bef-ad2b4f3f3284",
+      "name": "Preparar fuente de audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-source",
+              "leftValue": "={{ !!$json._audio_source_kind }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c747657d-e4fe-44ba-bf22-1349fb6d3158",
+      "name": "¿Hay audio utilizable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-b64",
+              "leftValue": "={{ $json._audio_source_kind }}",
+              "rightValue": "base64",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c450cba1-da64-4af2-899f-7d620fc1b093",
+      "name": "¿Fuente es base64?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        32,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst base64 = item.json._audio_base64;\nconst mime   = item.json._audio_mime_type ?? 'audio/ogg';\nconst ext    = item.json._audio_file_ext ?? 'ogg';\n\nif (!base64) {\n  throw new Error('No se encontró _audio_base64');\n}\n\nitem.binary = item.binary ?? {};\nitem.binary.data = {\n  data: base64,\n  mimeType: mime,\n  fileName: `audio.${ext}`,\n};\n\nreturn [item];"
+      },
+      "id": "014b800c-a739-4d06-9fad-512f1fefe500",
+      "name": "Base64 a binario",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "whisper-large-v3-turbo"
+            },
+            {
+              "name": "language",
+              "value": "es"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ $json._audio_prompt }}"
+            },
+            {
+              "name": "response_format",
+              "value": "verbose_json"
+            },
+            {
+              "name": "temperature",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10037a41-f5f3-4125-b14f-80c5bd4f6a4c",
+      "name": "Groq — Transcribir audio por archivo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        512,
+        80
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json._audio_url }}"
+            },
+            {
+              "name": "model",
+              "value": "whisper-large-v3-turbo"
+            },
+            {
+              "name": "language",
+              "value": "es"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ $json._audio_prompt }}"
+            },
+            {
+              "name": "response_format",
+              "value": "verbose_json"
+            },
+            {
+              "name": "temperature",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c6043d26-b30c-4f3e-b0d6-7b3b32abcbe2",
+      "name": "Groq — Transcribir audio por URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        272,
+        336
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reescribir el payload para que CF-01BE Normalize lo trate como texto normal.\nconst source = $('Preparar fuente de audio').item.json;\nconst stt    = $input.first().json ?? {};\n\nconst text =\n  (typeof stt?.text === 'string' && stt.text.trim()) ? stt.text.trim() :\n  (typeof stt === 'string' && stt.trim()) ? stt.trim() :\n  null;\n\nconst body = JSON.parse(JSON.stringify(source._raw_body ?? {}));\nbody.data = body.data ?? {};\nbody.data.messageType = 'conversation';\nbody.data.message = {\n  ...(body.data.message ?? {}),\n  conversation: text ?? ''\n};\n\nreturn [{\n  json: {\n    ...source,\n    _raw_body: body,\n    _audio_transcription: text,\n    _audio_transcription_error: text ? null : (source._audio_transcription_error ?? 'transcription_empty'),\n    _audio_transcription_meta: stt,\n    _original_message_type: source._audio_message_type ?? 'audio'\n  }\n}];"
+      },
+      "id": "589950cf-6592-4f58-9875-3184f7c39662",
+      "name": "Reescribir inbound como texto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-text",
+              "leftValue": "={{ !!$json._audio_transcription }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "102ab1f0-91d9-449d-8baa-64bd05d92385",
+      "name": "¿Transcripción usable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        992,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "hxmjIWCThhi2D0Vp",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/hxmjIWCThhi2D0Vp",
+          "cachedResultName": "[CF] 01BE - Evolution Normalize Payload"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "b2395ddf-a8ac-431e-8b63-13823687cfc2",
+      "name": "→ CF-01BE Normalize",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1232,
+        112
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c033c212-f1ac-4503-8bc9-26db382f2fc6",
+      "name": "Skip — Audio sin transcripción",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1232,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://clinicflow-evolution:8080/chat/getBase64FromMediaMessage/{{ $json._raw_body?.instance ?? $vars.CF_EVO_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_EVO_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  message: {\n    key: $json._raw_body?.data?.key ?? {},\n    messageTimestamp: $json._raw_body?.data?.messageTimestamp ?? 0,\n    pushName: $json._raw_body?.data?.pushName ?? '',\n    message: $json._raw_body?.data?.message ?? {}\n  },\n  convertToMp4: false\n}) }}",
+        "options": {}
+      },
+      "id": "b4459329-925a-4282-9d44-8758af24b5cd",
+      "name": "Evolution — GET base64 audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -48,
+        -176
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Evolution devuelve { base64: \"...\", mediaType: \"audio\" } o similar\nconst source   = $('Preparar fuente de audio').item.json;\nconst evoResp  = $input.first().json;\n\n// Intentar extraer base64 de la respuesta de Evolution\nlet b64 = null;\ntry {\n  b64 = evoResp?.base64 ?? evoResp?.data?.base64 ?? null;\n  // Quitar prefijo data:... si viene\n  if (typeof b64 === 'string' && b64.startsWith('data:')) {\n    b64 = b64.slice(b64.indexOf(',') + 1);\n  }\n} catch (_) {}\n\nconst hasB64 = typeof b64 === 'string' && b64.length > 100;\n\nreturn [{\n  json: {\n    ...source,\n    // Sobreescribir con base64 real si Evolution lo proveyó\n    _audio_source_kind: hasB64 ? 'base64' : source._audio_source_kind,\n    _audio_base64:      hasB64 ? b64      : source._audio_base64,\n    // Conservar URL como último recurso\n    _evo_b64_ok: hasB64,\n  }\n}];\n"
+      },
+      "id": "024dcf7d-7d1c-4453-bf07-254d5c0faf51",
+      "name": "Inject base64 de Evolution",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        -128
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Preparar fuente de audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar fuente de audio": {
+      "main": [
+        [
+          {
+            "node": "¿Hay audio utilizable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay audio utilizable?": {
+      "main": [
+        [
+          {
+            "node": "Evolution — GET base64 audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip — Audio sin transcripción",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Fuente es base64?": {
+      "main": [
+        [
+          {
+            "node": "Base64 a binario",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Groq — Transcribir audio por URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Base64 a binario": {
+      "main": [
+        [
+          {
+            "node": "Groq — Transcribir audio por archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq — Transcribir audio por archivo": {
+      "main": [
+        [
+          {
+            "node": "Reescribir inbound como texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq — Transcribir audio por URL": {
+      "main": [
+        [
+          {
+            "node": "Reescribir inbound como texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reescribir inbound como texto": {
+      "main": [
+        [
+          {
+            "node": "¿Transcripción usable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Transcripción usable?": {
+      "main": [
+        [
+          {
+            "node": "→ CF-01BE Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip — Audio sin transcripción",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evolution — GET base64 audio": {
+      "main": [
+        [
+          {
+            "node": "Inject base64 de Evolution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inject base64 de Evolution": {
+      "main": [
+        [
+          {
+            "node": "¿Fuente es base64?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "b14c04d3-92d0-4183-a1a3-3067600a90d0",
+  "activeVersionId": "b14c04d3-92d0-4183-a1a3-3067600a90d0",
+  "versionCounter": 24,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-04-18T22:37:35.522Z",
+      "createdAt": "2026-04-18T22:37:35.522Z",
+      "id": "8UTzUbSr7jFAdvd1",
+      "name": "audio"
+    },
+    {
+      "updatedAt": "2026-03-13T23:53:08.722Z",
+      "createdAt": "2026-03-13T23:53:08.722Z",
+      "id": "QKOu4rlMJFZBky9o",
+      "name": "evolution"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.628Z",
+      "createdAt": "2026-03-13T23:51:17.628Z",
+      "id": "j6x1x4ElQPvLTYFS",
+      "name": "inbound"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.685Z",
+      "createdAt": "2026-10-29T05:33:29.685Z",
+      "role": "workflow:owner",
+      "workflowId": "rXLtBmt9wmCC7oow",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 116ed0af",
+    "description": ""
+  }
+}

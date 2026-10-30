@@ -1,0 +1,904 @@
+{
+  "updatedAt": "2026-10-29T05:36:55.000Z",
+  "createdAt": "2026-04-20T15:07:13.013Z",
+  "id": "FZhU5iobUVOHPOEG",
+  "name": "[CF] 11 - Availability Engine (Cal.com)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "5e94dee6-e572-44b8-8a7a-0fac7db3c83a",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope     = $input.first().json;\r\nconst tz           = envelope.tenant?.timezone ?? 'America/Mexico_City';\r\nconst session      = envelope.session ?? {};\r\nconst pending      = session.pending_context ?? {};\r\nconst eventTypeId  =\r\n  pending.calcom_event_type_id ??\r\n  envelope._selected_provider?.calcom_event_type_id ??\r\n  envelope.tenant?.settings?.calcom_event_type_id ??\r\n  null;\r\nconst serviceId    = session.active_service_id ?? pending.active_service_id ?? null;\r\nconst providerId   = session.active_provider_id ?? pending.active_provider_id ?? pending.provider_id ?? null;\r\nconst patientId    = session.active_patient_id ?? envelope.patient?.active_patient_id ?? null;\r\nconst bookingUidToReschedule = pending.reschedule_uid ?? null;\r\n\r\nlet error = null;\r\nif (!eventTypeId) error = 'missing_calcom_event_type_id';\r\nelse if (!serviceId) error = 'missing_service_id';\r\nelse if (!patientId) error = 'missing_patient_id';\r\n\r\nconst now   = new Date();\r\nconst start = now.toISOString();\r\nconst end   = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();\n\r\nconst hasCachedSlots = !error &&\n  Array.isArray(pending.available_slots) &&\n  pending.available_slots.length > 0;\nconst tryNlpSlot = false;\n\r\nreturn [{\r\n  json: {\r\n    ...envelope,\r\n    _error: error,\r\n    _calcom_event_type_id: eventTypeId,\r\n    _service_id:  serviceId,\r\n    _provider_id: providerId,\r\n    _provider_name: pending.provider_name ?? null,\r\n    _provider_specialty: pending.provider_specialty ?? null,\r\n    _patient_id:  patientId,\r\n    _slot_start:  start,\r\n    _slot_end:    end,\r\n    _timezone:    tz,\r\n    _booking_uid_to_reschedule: bookingUidToReschedule,\r\n    _has_cached_slots: hasCachedSlots,\r\n    _try_nlp_slot:     tryNlpSlot\r\n  }\r\n}];"
+      },
+      "id": "873ce6c5-8744-4838-8e55-71242453be01",
+      "name": "Preparar ventana",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._error || '' }}",
+              "rightValue": "=",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c48b6036-8467-4460-bc22-2d41b6afca4a",
+      "name": "¿Error config?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.cal.com/v2/slots",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "eventTypeId",
+              "value": "={{ $('Preparar ventana').item.json._calcom_event_type_id }}"
+            },
+            {
+              "name": "start",
+              "value": "={{ $('Preparar ventana').item.json._slot_start }}"
+            },
+            {
+              "name": "end",
+              "value": "={{ $('Preparar ventana').item.json._slot_end }}"
+            },
+            {
+              "name": "timeZone",
+              "value": "={{ $('Preparar ventana').item.json._timezone }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.CF_CALCOM_API_KEY}}"
+            },
+            {
+              "name": "cal-api-version",
+              "value": "2024-09-04"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0a4cfaf3-6320-4598-836e-ebdf589b566e",
+      "name": "Cal.com — GET slots",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// ── CF-11 · Procesar slots — agrupado por día, copy humanizado ────────────\nconst envelope = $('Preparar ventana').item.json;\nconst raw      = $input.first().json;\n\n// Si vino de Enrich Meta, leer de ahí\nlet calResp = raw;\nif (raw._calcom_response) {\n  calResp = raw._calcom_response;\n}\n\nconst session     = envelope.session ?? {};\nconst pending     = session.pending_context ?? {};\nconst tz          = envelope.tenant?.timezone ?? 'America/Mexico_City';\nconst patientName = raw._patient_name ?? null;\nconst serviceName = raw._service_name ?? null;\nconst serviceDur  = raw._service_duration ?? null;\nconst providerName = raw._provider_name ?? envelope._provider_name ?? null;\n\nconst invalidSelection = envelope._slot_selection_invalid === true;\n\n// ── Helper: formatear fecha ────────────────────────────────────────────────\nconst fmt = (iso, opts) => {\n  try {\n    return new Intl.DateTimeFormat('es-MX', { timeZone: tz, ...opts }).format(new Date(iso));\n  } catch { return iso; }\n};\n\nconst fmtHour = (iso) => fmt(iso, { hour: '2-digit', minute: '2-digit', hour12: true });\nconst fmtDay  = (iso) => fmt(iso, { weekday: 'long', day: 'numeric', month: 'long' });\nconst fmtDayShort = (iso) => fmt(iso, { weekday: 'short', day: 'numeric', month: 'short' });\n\nconst buildNoSlots = (body) => [{\n  json: {\n    ...envelope,\n    _patient_name: patientName,\n    _service_name: serviceName,\n    session: { ...session, current_step: 'select_slot',\n               pending_context: { ...pending, available_slots: [] } },\n    _session_update: { current_step: 'select_slot',\n                       pending_context: { ...pending, available_slots: [] } },\n    _outbound: { type: 'text', body }\n  }\n}];\n\nif (calResp?.status !== 'success' || !calResp?.data) {\n  return buildNoSlots('😔 No encontré disponibilidad en los próximos 30 días.\\n\\nEscribe *hola* para volver al menú.');\n}\n\n// ── Recopilar y deduplicar todos los slots ────────────────────────────────\nconst allSlots = [];\nfor (const [date, slots] of Object.entries(calResp.data)) {\n  for (const slot of (Array.isArray(slots) ? slots : [])) {\n    if (slot?.start) allSlots.push({ date, start: slot.start, end: slot.end ?? null });\n  }\n}\nallSlots.sort((a, b) => new Date(a.start) - new Date(b.start));\n\nconst seen  = new Set();\nconst dedup = allSlots.filter(s => {\n  const k = s.start;\n  if (seen.has(k)) return false;\n  seen.add(k); return true;\n});\n\nif (dedup.length === 0) {\n  return buildNoSlots('😔 No hay horarios disponibles en los próximos 30 días.\\n\\nEscribe *hola* para volver al menú.');\n}\n\n// ── Tomar varios días disponibles, respetando lo que Cal.com devuelve ─────\nconst MAX_DAYS_TO_SHOW = 5;\nconst MAX_SLOTS_PER_DAY = 5;\nconst MAX_TOTAL_SLOTS = 25;\n\nconst byDayAll = {};\nfor (const slot of dedup) {\n  const dayKey = slot.date || slot.start.slice(0, 10);\n  if (!byDayAll[dayKey]) byDayAll[dayKey] = [];\n  byDayAll[dayKey].push(slot);\n}\n\nconst selectedDays = Object.keys(byDayAll)\n  .sort()\n  .slice(0, MAX_DAYS_TO_SHOW);\n\nconst topSlots = [];\nconst byDay = {};\nfor (const day of selectedDays) {\n  const slotsForDay = byDayAll[day].slice(0, MAX_SLOTS_PER_DAY);\n  byDay[day] = [];\n  for (const slot of slotsForDay) {\n    if (topSlots.length >= MAX_TOTAL_SLOTS) break;\n    topSlots.push(slot);\n    byDay[day].push(slot);\n  }\n}\n\nfor (const day of Object.keys(byDay)) {\n  if (byDay[day].length === 0) delete byDay[day];\n}\n\n// ── Construir texto agrupado ───────────────────────────────────────────────\nlet slotIndex = 0;\nlet catalogLines = [];\nconst days = Object.keys(byDay).sort();\n\nfor (const day of days) {\n  const slots = byDay[day];\n  const dayLabel = fmtDay(slots[0].start);\n  // Capitalizar primera letra\n  const dayLabelCap = dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1);\n  \n  // Destacar el primero de todos como \"más cercano\"\n  const isFirstDay = day === days[0];\n  const dayHeader = isFirstDay\n    ? `📍 *${dayLabelCap}* _(más cercano)_`\n    : `📅 *${dayLabelCap}*`;\n  \n  catalogLines.push(dayHeader);\n  \n  for (const slot of slots) {\n    slotIndex++;\n    const hour = fmtHour(slot.start);\n    catalogLines.push(`   ${slotIndex}. ${hour}`);\n  }\n  catalogLines.push(''); // línea vacía entre días\n}\n\n// Quitar última línea vacía\nif (catalogLines[catalogLines.length - 1] === '') catalogLines.pop();\nconst catalogText = catalogLines.join('\\n');\n\n// ── Construir intro personalizada ─────────────────────────────────────────\nlet intro = '';\nif (invalidSelection) {\n  intro = '⚠️ No pude identificar el número de horario que elegiste. Aquí están las opciones de nuevo:\\n\\n';\n} else if (patientName && serviceName) {\n  intro = `Aquí están los horarios disponibles para *${serviceName}*${serviceDur ? ` (${serviceDur} min)` : ''}, para la cita de *${patientName}*${providerName ? ` con *${providerName}*` : ''}:\\n\\n`;\n} else if (serviceName) {\n  intro = `Aquí están los horarios disponibles para *${serviceName}*:\\n\\n`;\n} else {\n  intro = 'Aquí están los próximos horarios disponibles:\\n\\n';\n}\n\nconst body =\n  intro +\n  catalogText +\n  `\\n\\n_Responde solo con el número del horario que prefieras._`;\n\n// ── Guardar slots en pending_context para CF-06 y CF-12 ───────────────────\nconst pendingContext = {\n  ...pending,\n  queried_at:      new Date().toISOString(),\n  available_slots: topSlots,\n  patient_name:    patientName,\n  service_name:    serviceName,\n  provider_id:     envelope._provider_id ?? pending.provider_id ?? null,\n  provider_name:   providerName,\n  calcom_event_type_id: envelope._calcom_event_type_id ?? pending.calcom_event_type_id ?? null,\n};\n\nreturn [{\n  json: {\n    ...envelope,\n    _patient_name: patientName,\n    _service_name: serviceName,\n    session: { ...session, current_step: 'awaiting_slot_selection',\n               pending_context: pendingContext },\n    _session_update: { current_step: 'awaiting_slot_selection',\n                       pending_context: pendingContext },\n    _outbound: { type: 'text', body }\n  }\n}];\n"
+      },
+      "id": "21cb81a3-6fb2-4cf9-bbf8-73a14b7e921d",
+      "name": "Procesar slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ current_step: $json._session_update?.current_step, pending_context: $json._session_update?.pending_context, updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "4a5c244a-e3c6-416a-b2a3-b5dd6656ddc6",
+      "name": "Supabase — UPDATE session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        288
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Procesar slots').item.json;\nreturn [{ json: { ...e, _session_update: undefined } }];"
+      },
+      "id": "9b429246-4eef-4076-bde2-25b89edb82f3",
+      "name": "Recover Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "9da7180a-6469-456d-a06c-7393a9a67e4e",
+      "name": "→ CF-14 Outbound Sender",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $input.first().json;\nconst msgs = {\n  missing_calcom_event_type_id: '⚠️ Esta clínica o médico no tiene configurada su agenda todavía.\\nContáctanos directamente para agendar.',\n  missing_service_id: '⚠️ Primero necesito que elijas un servicio.\\n\\nEscribe *hola* para reiniciar.',\n  missing_patient_id: '⚠️ Primero necesito identificar al paciente.\\n\\nEscribe *hola* para reiniciar.',\n};\n\nreturn [{\n  json: {\n    ...e,\n    _outbound: {\n      type: 'text',\n      body: msgs[e._error] ?? '⚠️ No pude consultar la disponibilidad en este momento.'\n    }\n  }\n}];"
+      },
+      "id": "72957f5a-966a-4ef8-88b0-fd8ae379b3ae",
+      "name": "Build Error — Sin config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "5b2f9871-9c9b-49e9-8e14-56d7aa1c9e36",
+      "name": "→ CF-14 Error Outbound",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-c11nlp01",
+              "leftValue": "={{ $json._try_nlp_slot }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cee36579-abbf-4b90-990b-6773cf322f65",
+      "name": "IF — ¿NLP slot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        528
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar prompt para que GROQ identifique el slot que quiere el usuario\nconst envelope = $input.first().json;\nconst text     = String(envelope.message?.text ?? '').trim();\nconst pending  = envelope.session?.pending_context ?? {};\nconst slots    = Array.isArray(pending.available_slots) ? pending.available_slots : [];\nconst tz       = envelope.tenant?.timezone ?? 'America/Mexico_City';\n\nconst fmt = (iso) => {\n  try {\n    return new Date(iso).toLocaleString('es-MX', {\n      timeZone: tz, weekday: 'long', day: 'numeric',\n      month: 'long', hour: '2-digit', minute: '2-digit', hour12: true\n    });\n  } catch { return iso; }\n};\n\nconst slotList = slots.map((s, i) => `${i}: ${fmt(s.start)}`).join('\\n');\n\nconst system =\n  'Eres un asistente que identifica horarios médicos. ' +\n  'El usuario quiere elegir uno de los siguientes horarios disponibles. ' +\n  'Acepta expresiones como \"el primero\", \"mañana\", \"el martes\", \"a las 10\", etc. ' +\n  'Responde ÚNICAMENTE con JSON sin texto adicional:\\n' +\n  '{\"slot_index\": N, \"confidence\": 0.0}\\n' +\n  'Donde N es el índice (0-based) del horario más probable, o null si no puedes identificarlo con confianza ≥ 0.70.';\n\nconst user = `El usuario escribió: \"${text}\"\\n\\nHorarios disponibles (índice: fecha):\\n${slotList}`;\n\nreturn [{ json: { ...envelope, _groq_messages: [{ role: 'system', content: system }, { role: 'user', content: user }] } }];"
+      },
+      "id": "250f1bc5-fc88-44b9-8077-93502f98efee",
+      "name": "Build GROQ Prompt — Slot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        528
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 200, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
+        "options": {}
+      },
+      "id": "cc34828c-d7c9-4927-b2d0-12d046aa163c",
+      "name": "GROQ — Match slot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -112,
+        352
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parsear respuesta GROQ y resolver slot o señalar fallo\nconst envelope = $('Build GROQ Prompt — Slot').first().json;\nconst groqResp = $input.first().json;\nconst pending  = envelope.session?.pending_context ?? {};\nconst slots    = Array.isArray(pending.available_slots) ? pending.available_slots : [];\n\nlet slotIndex = null;\nlet confidence = 0;\n\ntry {\n  const content = String(groqResp?.choices?.[0]?.message?.content ?? '');\n  const cleaned = content.replace(/```json|```/g, '').trim();\n  const parsed  = JSON.parse(cleaned);\n  slotIndex  = parsed?.slot_index ?? null;\n  confidence = Number(parsed?.confidence ?? 0);\n} catch (_) { /* GROQ no disponible */ }\n\nconst idx      = slotIndex !== null ? Number(slotIndex) : -1;\nconst resolved = (idx >= 0 && idx < slots.length && confidence >= 0.70) ? slots[idx] : null;\n\nreturn [{\n  json: {\n    ...envelope,\n    _groq_messages: undefined,\n    _try_nlp_slot:  undefined,\n    _resolved_slot: resolved,\n    _slot_confidence: confidence\n  }\n}];"
+      },
+      "id": "fd75b879-8d92-4e42-ac15-1b5d6cd2f773",
+      "name": "Resolver NLP — Slot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        528
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-c11nlp05",
+              "leftValue": "={{ !!$json._resolved_slot }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2f971db1-7cd7-4d18-8fa9-5b50c9f86b46",
+      "name": "IF — ¿Slot resuelto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar envelope para CF-12 con el slot resuelto por NLP\nconst e    = $('Resolver NLP — Slot').first().json;\nconst slot = e._resolved_slot;\nif (!slot) throw new Error('NLP slot is null — should not reach here');\nconst session = e.session ?? {};\nreturn [{\n  json: {\n    ...e,\n    _resolved_slot:   undefined,\n    _slot_confidence: undefined,\n    _has_cached_slots: undefined,\n    _selected_slot:   slot,\n    session: {\n      ...session,\n      current_step:       'confirming',\n      pending_slot_start: slot.start ?? null,\n      pending_slot_end:   slot.end   ?? null,\n    },\n    _session_update: {\n      current_step:       'confirming',\n      pending_slot_start: slot.start ?? null,\n      pending_slot_end:   slot.end   ?? null,\n      pending_context:    session.pending_context ?? {}\n    }\n  }\n}];"
+      },
+      "id": "8420f38a-6501-41c3-b698-244037f3e138",
+      "name": "Prep Envelope — Slot NLP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        528
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ current_step: 'confirming', pending_slot_start: $json._selected_slot?.start ?? null, pending_slot_end:   $json._selected_slot?.end   ?? null, pending_context:    $json.session?.pending_context ?? {}, updated_at:         new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "253dedd7-5432-4c24-a33c-1d5c2c4fcb9e",
+      "name": "Supabase — UPDATE slot NLP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        528
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "wCjeF0Xd7vUXZq7c",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/wCjeF0Xd7vUXZq7c",
+          "cachedResultName": "[CF] 12 - Booking Processor (Cal.com + Supabase)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "90410d3e-1a08-4302-8ae8-0254cc2849a1",
+      "name": "→ CF-12 Booking (NLP)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1264,
+        416
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/patients",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $('Preparar ventana').item.json._patient_id }}"
+            },
+            {
+              "name": "select",
+              "value": "id,full_name,email"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "691b97ab-3f68-4c1d-a7d6-cce328c9157a",
+      "name": "Supabase — GET Patient",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        96
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/services",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $('Preparar ventana').item.json._service_id }}"
+            },
+            {
+              "name": "select",
+              "value": "id,name,description,duration_minutes,price"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "eff893a5-02e6-4bce-8aeb-e79f9f087e95",
+      "name": "Supabase — GET Service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        496
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Preparar ventana').item.json;\r\nconst calResp  = $input.first().json;\r\nconst pending  = envelope.session?.pending_context ?? {};\r\n\r\nlet patientName = null;\r\nlet serviceName = pending.service_name ?? null;\r\nlet serviceDesc = null;\r\nlet serviceDuration = pending.service_duration ?? null;\r\nlet providerName = pending.provider_name ?? envelope._provider_name ?? null;\r\nlet providerSpecialty = pending.provider_specialty ?? envelope._provider_specialty ?? null;\r\n\r\ntry {\r\n  const rawPat = $('Supabase — GET Patient').first().json;\r\n  const pat    = Array.isArray(rawPat) ? rawPat[0] : rawPat;\r\n  patientName  = pat?.full_name ?? null;\r\n} catch (_) {}\r\n\r\ntry {\r\n  const rawSvc = $('Supabase — GET Service').first().json;\r\n  const svc    = Array.isArray(rawSvc) ? rawSvc[0] : rawSvc;\r\n  serviceName    = serviceName ?? svc?.name ?? null;\r\n  serviceDesc    = svc?.description ?? null;\r\n  serviceDuration= serviceDuration ?? svc?.duration_minutes ?? null;\r\n} catch (_) {}\r\n\r\nreturn [{\r\n  json: {\r\n    ...envelope,\r\n    _calcom_response: calResp,\r\n    _patient_name:    patientName,\r\n    _service_name:    serviceName,\r\n    _service_desc:    serviceDesc,\r\n    _service_duration: serviceDuration,\r\n    _provider_name: providerName,\r\n    _provider_specialty: providerSpecialty,\r\n  }\r\n}];"
+      },
+      "id": "87ee3080-5927-4a76-a020-038622ca3fa0",
+      "name": "Enrich Meta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        336,
+        288
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Prep Envelope — Slot NLP').item.json;\nreturn [{ json: e }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        672
+      ],
+      "id": "85a85bb7-31bb-4891-8c79-464a2b27f9e1",
+      "name": "Recover Envelope NLP"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Preparar ventana",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar ventana": {
+      "main": [
+        [
+          {
+            "node": "IF — ¿NLP slot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Error config?": {
+      "main": [
+        [
+          {
+            "node": "Build Error — Sin config",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — GET Patient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error — Sin config": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Error Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cal.com — GET slots": {
+      "main": [
+        [
+          {
+            "node": "Enrich Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar slots": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPDATE session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPDATE session": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿NLP slot?": {
+      "main": [
+        [
+          {
+            "node": "Build GROQ Prompt — Slot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "¿Error config?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build GROQ Prompt — Slot": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Match slot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Match slot": {
+      "main": [
+        [
+          {
+            "node": "Resolver NLP — Slot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver NLP — Slot": {
+      "main": [
+        [
+          {
+            "node": "IF — ¿Slot resuelto?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — ¿Slot resuelto?": {
+      "main": [
+        [
+          {
+            "node": "Prep Envelope — Slot NLP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "¿Error config?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Envelope — Slot NLP": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPDATE slot NLP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPDATE slot NLP": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope NLP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Patient": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET Service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Service": {
+      "main": [
+        [
+          {
+            "node": "Cal.com — GET slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Meta": {
+      "main": [
+        [
+          {
+            "node": "Procesar slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope NLP": {
+      "main": [
+        [
+          {
+            "node": "→ CF-12 Booking (NLP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "7dc8a738-afc7-414d-934b-638403486784",
+  "activeVersionId": "7dc8a738-afc7-414d-934b-638403486784",
+  "versionCounter": 41,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-16T21:16:33.248Z",
+      "createdAt": "2026-03-16T21:16:33.248Z",
+      "id": "QTlCtncSqhn40i9q",
+      "name": "calcom"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.627Z",
+      "createdAt": "2026-10-29T05:33:29.627Z",
+      "role": "workflow:owner",
+      "workflowId": "FZhU5iobUVOHPOEG",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 940b3538",
+    "description": ""
+  }
+}

@@ -1,0 +1,526 @@
+{
+  "updatedAt": "2026-10-29T05:36:40.000Z",
+  "createdAt": "2026-04-20T14:33:26.457Z",
+  "id": "Ab9SDBPqvzaxtuMB",
+  "name": "[CF] 02 - Tenant Resolver (v2 Meta + Evolution)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "040a7f4b-157c-4cb9-b74a-b4ae56b4b583",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-channel",
+              "leftValue": "={{ $json._channel }}",
+              "rightValue": "evolution",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "59a006ed-80d2-43e1-adf6-02bacfe837c4",
+      "name": "¿Canal Evolution o Meta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenants",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "evo_instance_name",
+              "value": "=eq.{{ $json.tenant.evo_instance_name }}"
+            },
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e7058ef9-f97c-40e2-be05-79288064a45d",
+      "name": "Supabase — GET Tenant por evo_instance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenants",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "wa_phone_number_id",
+              "value": "=eq.{{ $json.tenant.wa_phone_number_id }}"
+            },
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6f6b2943-b021-4b39-89df-9d6a7dd7c79e",
+      "name": "Supabase — GET Tenant por wa_phone_number_id",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        288
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// PostgREST devuelve array, pero n8n puede desempaquetarlo automáticamente.\n// Manejamos ambos casos.\nconst envelope   = $('Execute Workflow Trigger').item.json;\nconst raw        = $input.first().json;\n\n// Si n8n ya desempaquetó → raw es el objeto directo\n// Si llegó como array → tomamos el primer elemento\nconst tenant = Array.isArray(raw) ? (raw[0] ?? null) : (raw?.id ? raw : null);\n\nreturn [{\n  json: {\n    ...envelope,\n    _tenant_row:    tenant,\n    _tenant_found:  tenant !== null,\n    _tenant_active: tenant?.status === 'active'\n  }\n}];"
+      },
+      "id": "bd92d9cd-04c0-4272-b8f0-bfde5c582190",
+      "name": "Evaluar resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-active",
+              "leftValue": "={{ $json._tenant_active }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "db103ff8-c5aa-4650-bbca-c3b489536909",
+      "name": "¿Tenant activo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenant_settings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json._tenant_row.id }}"
+            },
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5db60a55-8da4-4830-98ee-e93b3fb0f670",
+      "name": "Supabase — GET Tenant Settings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Construye Envelope final con tenant + settings completos\nconst prev     = $('¿Tenant activo?').item.json;\nconst t        = prev._tenant_row;\nconst settRows = $input.first().json;\nconst settings = (Array.isArray(settRows) ? settRows[0] : settRows) ?? {};\n\nconst envelope = {\n  tenant: {\n    tenant_id:           t.id,\n    wa_phone_number_id:  t.wa_phone_number_id  ?? null,\n    evo_instance_name:   t.evo_instance_name   ?? null,\n    calendar_id:         t.calendar_id         ?? null,\n    timezone:            t.timezone            ?? 'America/Mexico_City',\n    name:                t.name,\n    settings: {\n      welcome_message:        settings.welcome_message        ?? null,\n      about_text:             settings.about_text             ?? null,\n      google_maps_url:        settings.google_maps_url        ?? null,\n      phone_contact:          settings.phone_contact          ?? null,\n      faq_json:               settings.faq_json               ?? [],\n      assistant_prompt:       settings.assistant_prompt       ?? null,\n      working_hours_json:     settings.working_hours_json     ?? {},\n      cancellation_policy:    settings.cancellation_policy    ?? null,\n      booking_buffer_minutes: settings.booking_buffer_minutes ?? 0,\n      calcom_event_type_id:   settings.calcom_event_type_id   ?? null,\n      is_bot_enabled:         settings.is_bot_enabled         ?? true\n    }\n  },\n  user:    prev.user,\n  patient: prev.patient,\n  session: prev.session,\n  message: prev.message,\n  routing: prev.routing,\n  _channel: prev._channel ?? 'meta',\n  meta:    prev.meta\n};\n\nreturn [{ json: envelope }];"
+      },
+      "id": "3f747f57-88bd-4324-b504-d90fce978284",
+      "name": "Build Envelope con Tenant",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "GV9VogPAgp3rqhLc",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/GV9VogPAgp3rqhLc",
+          "cachedResultName": "[CF] 03 - Message Logger Inbound"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "1946a11b-2fa9-4c84-a994-afb2d4fb23ec",
+      "name": "→ CF-03 Message Logger",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev   = $input.first().json;\nconst reason = !prev._tenant_found ? 'tenant_not_found' : 'tenant_paused';\n\nreturn [{\n  json: {\n    ...prev,\n    _error:        true,\n    _error_reason: reason,\n    _tenant_row:   undefined\n  }\n}];"
+      },
+      "id": "22ff5735-1d34-4d51-b6c4-24f6f8ee249e",
+      "name": "Build Error Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sfybvsgworojwobdrnss.supabase.co",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f0df02a9-16fb-44b5-8948-200cb6d57d48",
+      "name": "Log Error en message_log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        288
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "¿Canal Evolution o Meta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Canal Evolution o Meta?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET Tenant por evo_instance",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — GET Tenant por wa_phone_number_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Tenant por evo_instance": {
+      "main": [
+        [
+          {
+            "node": "Evaluar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Tenant por wa_phone_number_id": {
+      "main": [
+        [
+          {
+            "node": "Evaluar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluar resultado": {
+      "main": [
+        [
+          {
+            "node": "¿Tenant activo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Tenant activo?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET Tenant Settings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Error Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET Tenant Settings": {
+      "main": [
+        [
+          {
+            "node": "Build Envelope con Tenant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Envelope con Tenant": {
+      "main": [
+        [
+          {
+            "node": "→ CF-03 Message Logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Envelope": {
+      "main": [
+        [
+          {
+            "node": "Log Error en message_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "ab7bc969-39ae-4f07-a9e8-648ce824dcdf",
+  "activeVersionId": "ab7bc969-39ae-4f07-a9e8-648ce824dcdf",
+  "versionCounter": 33,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-13T23:51:47.951Z",
+      "createdAt": "2026-03-13T23:51:47.951Z",
+      "id": "Lgai86kMf1BuzqL7",
+      "name": "tenant"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.610Z",
+      "createdAt": "2026-10-29T05:33:29.610Z",
+      "role": "workflow:owner",
+      "workflowId": "Ab9SDBPqvzaxtuMB",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 97e50ee4",
+    "description": ""
+  }
+}

@@ -1,0 +1,212 @@
+{
+  "updatedAt": "2026-10-29T05:37:03.000Z",
+  "createdAt": "2026-04-20T14:34:30.545Z",
+  "id": "GV9VogPAgp3rqhLc",
+  "name": "[CF] 03 - Message Logger Inbound",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e2e51fff-bc73-4508-aea2-1d3e9c46b773",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $input.first().json;\n\nconst record = {\n  tenant_id:  envelope.tenant?.tenant_id ?? null,\n  user_wa:    envelope.user?.wa_number,\n  direction:  'inbound',\n  message_id: envelope.message?.message_id ?? null,\n  payload: {\n    channel:     envelope._channel ?? 'unknown',\n    type:        envelope.message?.type,\n    text:        envelope.message?.text,\n    interactive: envelope.message?.interactive,\n    timestamp:   envelope.message?.timestamp\n  }\n};\n\nreturn [{ json: { _log_record: record, ...envelope } }];"
+      },
+      "id": "060b9718-c80e-4eb1-85a9-7e088727feb0",
+      "name": "Build Log Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/message_log",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json._log_record) }}",
+        "options": {}
+      },
+      "id": "10d857f3-1f4c-460a-b2ec-7d4b49b1317d",
+      "name": "Supabase — INSERT message_log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "I8dHR1hMvYYyrLgu",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/I8dHR1hMvYYyrLgu",
+          "cachedResultName": "[CF] 04 - User & Session Bootstrap"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "3b2a1d08-e308-4094-985c-01bbee7f736b",
+      "name": "→ CF-04 User & Session Bootstrap",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        864,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Supabase con return=minimal devuelve {} vacío.\n// Recuperamos el envelope del nodo anterior.\nconst envelope = $('Build Log Record').item.json;\n\n// Limpiamos el campo interno _log_record antes de pasar al siguiente workflow\nconst { _log_record, ...clean } = envelope;\n\nreturn [{ json: clean }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        16
+      ],
+      "id": "480ce3f8-1796-45b4-89c6-41ba6a2af0f2",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Log Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Log Record": {
+      "main": [
+        [
+          {
+            "node": "Supabase — INSERT message_log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — INSERT message_log": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "→ CF-04 User & Session Bootstrap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "625b8cee-39df-414a-9786-5f39c8df335b",
+  "activeVersionId": "625b8cee-39df-414a-9786-5f39c8df335b",
+  "versionCounter": 23,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-14T19:36:06.121Z",
+      "createdAt": "2026-03-14T19:36:06.121Z",
+      "id": "9gtVyV5aMIc7lCkb",
+      "name": "logger"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.633Z",
+      "createdAt": "2026-10-29T05:33:29.633Z",
+      "role": "workflow:owner",
+      "workflowId": "GV9VogPAgp3rqhLc",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 282d32d5",
+    "description": ""
+  }
+}

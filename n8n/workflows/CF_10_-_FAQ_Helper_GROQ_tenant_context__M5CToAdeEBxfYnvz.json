@@ -1,0 +1,209 @@
+{
+  "updatedAt": "2026-10-29T05:37:18.000Z",
+  "createdAt": "2026-04-20T15:12:16.136Z",
+  "id": "M5CToAdeEBxfYnvz",
+  "name": "[CF] 10 - FAQ Helper (GROQ + tenant context)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "beb11233-85e3-4cde-87a6-00e8d3bfc771",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CF-10 - Build FAQ Context with engagement fallback\nconst envelope   = $input.first().json;\nconst settings   = envelope.tenant?.settings ?? {};\nconst clinicName = envelope.tenant?.name ?? 'la clinica';\nconst rawText    = String(envelope.message?.text ?? '').trim();\n\nconst menuAliases = {\n  '1': 'Quiero agendar una cita',\n  '2': 'Quiero ver los servicios disponibles',\n  '3': 'Dame informacion de la clinica, horarios, ubicacion, servicios y como agendar.',\n};\nconst isMenuNumber = /^\\d+$/.test(rawText) && rawText.length <= 2;\nconst msgText = isMenuNumber\n  ? (menuAliases[rawText] ?? 'Dame informacion de la clinica.')\n  : (rawText || 'Dame informacion de la clinica.');\n\nconst normalizeList = (value) => Array.isArray(value) ? value : [];\n\nlet faqBlock = '';\nconst faqItems = normalizeList(settings.faq_json);\nif (faqItems.length > 0) {\n  const lines = faqItems.map(item => {\n    const q = item.q ?? item.question ?? '';\n    const a = item.a ?? item.answer ?? '';\n    return q && a ? `P: ${q}\\nR: ${a}` : null;\n  }).filter(Boolean);\n  if (lines.length > 0) faqBlock = `\\n\\nPreguntas frecuentes:\\n${lines.join('\\n\\n')}`;\n}\n\nlet hoursBlock = '';\nconst wh = settings.working_hours_json ?? {};\nif (wh && typeof wh === 'object' && Object.keys(wh).length > 0) {\n  const dayMap = { mon:'Lun', tue:'Mar', wed:'Mie', thu:'Jue', fri:'Vie', sat:'Sab', sun:'Dom' };\n  const lines = Object.entries(wh).map(([d, h]) => `${dayMap[d] ?? d}: ${h}`);\n  hoursBlock = `\\n\\nHorarios de atencion: ${lines.join(' | ')}`;\n}\n\nconst contactLines = [];\nif (settings.phone_contact) contactLines.push(`Telefono/WhatsApp: ${settings.phone_contact}`);\nif (settings.google_maps_url) contactLines.push(`Ubicacion / mapa: ${settings.google_maps_url}`);\n\nconst hasConfiguredInfo =\n  !!faqBlock ||\n  !!settings.about_text ||\n  !!hoursBlock ||\n  contactLines.length > 0 ||\n  !!settings.cancellation_policy;\n\nconst defaultInfo =\n  `Informacion base si faltan datos configurados:\\n` +\n  `- La clinica usa este WhatsApp para orientar pacientes y ayudarles a agendar.\\n` +\n  `- Puede mostrar servicios disponibles, precios configurados, medicos/especialistas y horarios libres.\\n` +\n  `- Puede ayudar a cancelar o reagendar citas escribiendo \"cancelar\" o \"reagendar\".\\n` +\n  `- Si el paciente necesita hablar con recepcion, puede llamar por WhatsApp al numero de la clinica o pedir contacto aqui.\\n` +\n  `- Para dudas medicas, diagnosticos o medicamentos, debe agendar consulta con un doctor.`;\n\nlet system = settings.assistant_prompt\n  ? settings.assistant_prompt\n  : `Eres el asistente virtual de ${clinicName}. Responde de forma amable, clara y util en espanol.`;\n\nif (settings.about_text) system += `\\n\\nSobre la clinica: ${settings.about_text}`;\nif (faqBlock) system += faqBlock;\nif (settings.cancellation_policy) system += `\\n\\nPolitica de cancelacion: ${settings.cancellation_policy}`;\nif (hoursBlock) system += hoursBlock;\nif (contactLines.length > 0) system += `\\n\\nContacto:\\n${contactLines.join('\\n')}`;\nsystem += `\\n\\n${defaultInfo}`;\n\nsystem +=\n  `\\n\\nReglas importantes:\\n` +\n  `- Si preguntan por informacion general, responde con una estructura clara: presentacion, que puede hacer el asistente, como agendar y siguiente paso.\\n` +\n  `- No digas simplemente \"no tengo informacion disponible\"; si falta un dato exacto, dilo brevemente y ofrece agendar o mostrar servicios.\\n` +\n  `- No inventes horarios, direccion ni telefonos si no estan configurados.\\n` +\n  `- Maximo 6 bloques cortos, apto para WhatsApp.\\n` +\n  `- Para sintomas, medicamentos o diagnosticos, indica que debe revisarlo el doctor en consulta.\\n` +\n  `- Cierra con una pregunta util para enganchar al paciente.`;\n\nreturn [{\n  json: {\n    ...envelope,\n    _faq_has_configured_info: hasConfiguredInfo,\n    _groq_messages: [\n      { role: 'system', content: system },\n      { role: 'user', content: msgText }\n    ]\n  }\n}];"
+      },
+      "id": "837f9520-42e4-4717-b6f0-fb84512d05b1",
+      "name": "Build FAQ Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  messages: $json._groq_messages,\n  max_tokens: 600,\n  temperature: 0.5\n}) }}",
+        "options": {}
+      },
+      "id": "6eb41dad-33cc-4c3e-b74a-8fd975bb2795",
+      "name": "GROQ — Answer FAQ",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// CF-10 - Build FAQ Outbound\nconst envelope = $('Build FAQ Context').item.json;\nconst groqResp = $input.first().json;\n\nlet answer = '';\ntry {\n  answer = String(groqResp?.choices?.[0]?.message?.content ?? '').trim();\n} catch (_) {\n  answer = '';\n}\n\nconst clinic = envelope.tenant?.name ?? 'la clinica';\nconst phone = envelope.tenant?.settings?.phone_contact ?? null;\nconst weakAnswer =\n  !answer ||\n  /no tengo (esa )?informaci[oó]n disponible/i.test(answer) ||\n  /no hay informaci[oó]n/i.test(answer);\n\nif (weakAnswer) {\n  const phoneLine = phone\n    ? `\\n📞 Tambien puedes llamar por WhatsApp a la clinica: ${phone}`\n    : `\\n📞 Tambien puedes llamar por WhatsApp a este mismo numero si prefieres hablar directo.`;\n\n  answer =\n    `🏥 *${clinic}*\\n\\n` +\n    `Puedo ayudarte a encontrar el servicio adecuado, revisar medicos disponibles y agendar una cita desde este chat.\\n\\n` +\n    `Tambien puedo apoyarte con cambios de cita: escribe *cancelar* o *reagendar* cuando lo necesites.` +\n    phoneLine +\n    `\\n\\nPara ver servicios y precios, responde *2*. Para agendar, responde *1*.`;\n}\n\nconst fullBody =\n  answer +\n  '\\n\\n─────────────────\\n¿En qué más puedo ayudarte?\\n\\n1. 📅 Agendar cita\\n2. 🏥 Ver servicios\\n3. ❓ Más preguntas\\n\\n_Responde con el número o escribe tu opción._';\n\nreturn [{\n  json: {\n    ...envelope,\n    _groq_messages: undefined,\n    _outbound: {\n      type: 'text',\n      body: fullBody\n    }\n  }\n}];"
+      },
+      "id": "8762fef6-deb4-450b-a858-a00a70f638e6",
+      "name": "Build FAQ Outbound",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "dcf23b1e-b30c-48af-8cd5-4c7c5ebd74f9",
+      "name": "→ CF-14 Outbound Sender",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build FAQ Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build FAQ Context": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Answer FAQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Answer FAQ": {
+      "main": [
+        [
+          {
+            "node": "Build FAQ Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build FAQ Outbound": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "ee8bdcbf-98bc-4e29-a357-fc70c079ba0c",
+  "activeVersionId": "ee8bdcbf-98bc-4e29-a357-fc70c079ba0c",
+  "versionCounter": 25,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    },
+    {
+      "updatedAt": "2026-04-03T22:45:14.139Z",
+      "createdAt": "2026-04-03T22:45:14.139Z",
+      "id": "i8dsYDlbLWWv9Ag4",
+      "name": "faq"
+    },
+    {
+      "updatedAt": "2026-04-03T22:42:30.855Z",
+      "createdAt": "2026-04-03T22:42:30.855Z",
+      "id": "qkjcrn24PjrkQAKY",
+      "name": "groq"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.649Z",
+      "createdAt": "2026-10-29T05:33:29.649Z",
+      "role": "workflow:owner",
+      "workflowId": "M5CToAdeEBxfYnvz",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 9920b3f3",
+    "description": ""
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "updatedAt": "2026-10-29T05:37:40.000Z",
+  "createdAt": "2026-04-20T14:31:00.665Z",
+  "id": "hxmjIWCThhi2D0Vp",
+  "name": "[CF] 01BE - Evolution Normalize Payload",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "85753e62-790d-422b-9a4a-267ba844f89f",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── CF-01BE: NORMALIZE EVOLUTION → ENVELOPE JSON ────────────────────\n//\n// Payload real verificado (2026-03-13):\n// {\n//   body: {\n//     event: 'messages.upsert',\n//     instance: 'cfwa3',\n//     data: {\n//       key: {\n//         remoteJid: '{{REDACTED:PHONE}}@s.whatsapp.net',  ← quien escribe\n//         fromMe: false,\n//         id: 'ACF497EECAA484FBE66AE29E3A596EC',\n//         addressingMode: 'lid'\n//       },\n//       pushName: 'RR',\n//       message: { conversation: 'Hola' },\n//       messageType: 'conversation',\n//       messageTimestamp: 1773441983,\n//       instanceId: '1f62e380-...',\n//       source: 'android'\n//     },\n//     sender: '{{REDACTED:PHONE}}@s.whatsapp.net',  ← número PROPIO de la instancia (ignorar)\n//     server_url: 'http://localhost:8080',\n//     apikey: '...'\n//   }\n// }\n\nconst body = $input.first().json._raw_body;\nconst data = body.data;\nconst key  = data.key;\n\n// ── from_wa: número del paciente que escribe ─────────────────────────\n// remoteJid = '{{REDACTED:PHONE}}@s.whatsapp.net' → extraer solo el número\nconst from_wa = key.remoteJid\n  .replace(/@s\\.whatsapp\\.net$/, '')\n  .replace(/@lid$/, '')\n  .replace(/@.*$/, '');\n\n// ── evo_instance: identifica al tenant ──────────────────────────────\n// body.instance = 'cfwa3'\nconst evo_instance = body.instance;\n\n// ── message_id ──────────────────────────────────────────────────────\nconst message_id = key.id;\n\n// ── timestamp ───────────────────────────────────────────────────────\nconst ts = data.messageTimestamp ?? Math.floor(Date.now() / 1000);\nconst timestamp = new Date(ts * 1000).toISOString();\n\n// ── nombre del contacto ─────────────────────────────────────────────\nconst wa_name = data.pushName ?? null;\n\n// ── tipo y texto del mensaje ─────────────────────────────────────────\nconst msgType = data.messageType ?? 'unknown';\nconst msgObj  = data.message ?? {};\n\nlet text = null;\nlet msg_type_normalized = 'unknown';\n\nswitch (msgType) {\n  case 'conversation':\n    text = msgObj.conversation?.trim() ?? null;\n    msg_type_normalized = 'text';\n    break;\n  case 'extendedTextMessage':\n    text = msgObj.extendedTextMessage?.text?.trim() ?? null;\n    msg_type_normalized = 'text';\n    break;\n  case 'imageMessage':\n    msg_type_normalized = 'image';\n    break;\n  case 'audioMessage':\n  case 'pttMessage':\n    msg_type_normalized = 'audio';\n    break;\n  case 'documentMessage':\n    msg_type_normalized = 'document';\n    break;\n  case 'buttonsResponseMessage':\n  case 'listResponseMessage':\n  case 'templateButtonReplyMessage':\n    msg_type_normalized = 'interactive';\n    break;\n  default:\n    msg_type_normalized = 'unknown';\n}\n\n// ── payload interactivo (botones / listas) ────────────────────────────\nlet interactive = { kind: null, id: null, title: null };\n\nif (msgType === 'buttonsResponseMessage') {\n  const btn = msgObj.buttonsResponseMessage;\n  interactive = {\n    kind:  'button_reply',\n    id:    btn?.selectedButtonId ?? null,\n    title: btn?.selectedDisplayText ?? null\n  };\n} else if (msgType === 'listResponseMessage') {\n  const lst = msgObj.listResponseMessage;\n  interactive = {\n    kind:  'list_reply',\n    id:    lst?.singleSelectReply?.selectedRowId ?? null,\n    title: lst?.title ?? null\n  };\n} else if (msgType === 'templateButtonReplyMessage') {\n  const tpl = msgObj.templateButtonReplyMessage;\n  interactive = {\n    kind:  'button_reply',\n    id:    tpl?.selectedId ?? null,\n    title: tpl?.selectedDisplayText ?? null\n  };\n}\n\n// ── Envelope JSON — contrato estándar ClinicFlow ──────────────────────\n// Idéntico al que produce CF-01B (Meta).\n// Todo lo que viene después (CF-02 en adelante) trabaja sobre este contrato.\nconst envelope = {\n  tenant: {\n    tenant_id:          null,          // CF-02 lo resuelve\n    wa_phone_number_id: null,          // no aplica con Evolution\n    evo_instance_name:  evo_instance,  // CF-02 usa este campo para buscar tenant\n    calendar_id:        null,\n    timezone:           'America/Mexico_City',\n    name:               null,\n    settings:           {}\n  },\n  user: {\n    wa_number: from_wa,\n    wa_name:   wa_name,\n    user_id:   null                    // CF-04 lo resuelve\n  },\n  patient: {\n    active_patient_id: null            // CF-07 lo resuelve\n  },\n  session: {\n    session_id:         null,\n    current_step:       'idle',\n    is_expired:         false,\n    active_service_id:  null,\n    pending_slot_start: null,\n    pending_slot_end:   null,\n    pending_context:    {}\n  },\n  message: {\n    message_id:  message_id,\n    timestamp:   timestamp,\n    type:        msg_type_normalized,\n    text:        text,\n    interactive: interactive\n  },\n  routing: {\n    intent:     null,\n    confidence: null,\n    source:     null\n  },\n  _channel: 'evolution',\n  meta: {\n    raw: body\n  }\n};\n\nreturn [{ json: envelope }];"
+      },
+      "id": "15581249-0325-49df-847d-d47957941bb5",
+      "name": "Normalize → Envelope JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "Ab9SDBPqvzaxtuMB",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Ab9SDBPqvzaxtuMB",
+          "cachedResultName": "[CF] 02 - Tenant Resolver (v2 Meta + Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "71658f44-96bd-4ef8-a4f0-bc043f3b5d35",
+      "name": "→ CF-02 Tenant Resolver",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize → Envelope JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize → Envelope JSON": {
+      "main": [
+        [
+          {
+            "node": "→ CF-02 Tenant Resolver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "89bc7125-831f-4f5a-ab61-a12ef74b09b8",
+  "activeVersionId": "89bc7125-831f-4f5a-ab61-a12ef74b09b8",
+  "versionCounter": 21,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-13T23:53:08.722Z",
+      "createdAt": "2026-03-13T23:53:08.722Z",
+      "id": "QKOu4rlMJFZBky9o",
+      "name": "evolution"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.628Z",
+      "createdAt": "2026-03-13T23:51:17.628Z",
+      "id": "j6x1x4ElQPvLTYFS",
+      "name": "inbound"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.670Z",
+      "createdAt": "2026-10-29T05:33:29.670Z",
+      "role": "workflow:owner",
+      "workflowId": "hxmjIWCThhi2D0Vp",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version cf90fd0d",
+    "description": ""
+  }
+}

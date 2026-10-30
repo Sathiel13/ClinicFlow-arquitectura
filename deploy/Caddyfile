@@ -1,0 +1,15 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$N8N_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy clinicflow-n8n:5678 {
+		flush_interval -1
+	}
+}
+
+{$EVO_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy clinicflow-evolution:8080
+}

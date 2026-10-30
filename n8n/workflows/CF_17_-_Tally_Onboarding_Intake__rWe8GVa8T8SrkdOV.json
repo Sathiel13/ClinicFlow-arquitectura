@@ -1,0 +1,526 @@
+{
+  "updatedAt": "2026-10-29T05:37:48.000Z",
+  "createdAt": "2026-04-21T21:08:11.371Z",
+  "id": "rWe8GVa8T8SrkdOV",
+  "name": "[CF] 17 - Tally Onboarding Intake",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tally-onboarding",
+        "options": {}
+      },
+      "id": "3087d6c6-583c-403e-becf-9d36f69de88f",
+      "name": "Webhook POST Tally",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "cf7f89f2-9856-413c-b0ef-4983d0caa103"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// ── CF-17: PARSE TALLY PAYLOAD ────────────────────────────────────────────\nconst body   = $input.first().json.body;\nconst fields = body.data.fields;\nconst get    = (key) => fields.find(f => f.key === key)?.value ?? null;\n\n// ── Zona horaria desde DROPDOWN ───────────────────────────────────────────\nconst tzField  = fields.find(f => f.key === 'question_MApRgX');\nconst tzId     = Array.isArray(tzField?.value) ? tzField.value[0] : null;\nconst tzOption = tzField?.options?.find(o => o.id === tzId);\nconst timezone = tzOption?.text ?? 'America/Mexico_City';\n\n// ── Parsear horarios: \"Lun-Vie 9:00-18:00, Sab 9:00-14:00\" ──────────────\n// Convierte a { mon:\"9:00-18:00\", tue:\"9:00-18:00\", ... } que CF-10 espera\nconst DAY_MAP = {\n  'lun':'mon','mar':'tue','mie':'wed','mié':'wed','jue':'thu',\n  'vie':'fri','sab':'sat','sáb':'sat','dom':'sun',\n  'mon':'mon','tue':'tue','wed':'wed','thu':'thu',\n  'fri':'fri','sat':'sat','sun':'sun'\n};\nconst RANGE_MAP = {\n  'lun-vie': ['mon','tue','wed','thu','fri'],\n  'lun-sab': ['mon','tue','wed','thu','fri','sat'],\n  'lun-sáb': ['mon','tue','wed','thu','fri','sat'],\n  'lun-dom': ['mon','tue','wed','thu','fri','sat','sun'],\n};\n\nfunction parseHours(raw) {\n  if (!raw) return {};\n  const result = {};\n  const segments = raw.split(',').map(s => s.trim()).filter(Boolean);\n  for (const seg of segments) {\n    // Formato: \"Lun-Vie 9:00-18:00\" o \"Lun 9:00-14:00\"\n    const match = seg.match(/^([a-záéíóúüñ\\-]+)\\s+(\\d{1,2}:\\d{2}-\\d{1,2}:\\d{2})/i);\n    if (!match) continue;\n    const dayPart  = match[1].toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');\n    const hourPart = match[2];\n    const expanded = RANGE_MAP[dayPart];\n    if (expanded) {\n      expanded.forEach(d => { result[d] = hourPart; });\n    } else {\n      const key = DAY_MAP[dayPart];\n      if (key) result[key] = hourPart;\n    }\n  }\n  return result;\n}\n\n// ── Parsear servicios: \"Nombre/precio/minutos\" uno por línea ─────────────\nconst servicesRaw = get('question_J2vzgd') ?? '';\nconst services = servicesRaw\n  .split('\\n')\n  .map(l => l.trim())\n  .filter(l => l.length > 0)\n  .map(l => {\n    const p = l.split('/');\n    return {\n      name:             (p[0] ?? '').trim(),\n      price:            parseFloat((p[1] ?? '0').replace(/[^0-9.]/g,'')) || 0,\n      duration_minutes: parseInt((p[2] ?? '30').trim(), 10) || 30,\n      is_active:        true\n    };\n  })\n  .filter(s => s.name.length > 0);\n\n// ── Normalizar número WhatsApp (quitar + y espacios) ─────────────────────\nconst adminWa = (get('question_vN5YgQ') ?? '').replace(/[\\s\\+\\-]/g, '');\n\n// ── Payload estructurado ──────────────────────────────────────────────────\nreturn [{ json: {\n  clinic_name:            get('question_BGW76N'),\n  doctor_name:            get('question_kYBEgM'),\n  admin_wa:               adminWa,\n  email:                  get('question_KMK1O7'),\n  timezone:               timezone,\n  business_address:       get('question_LdLpg1'),\n  google_maps_url:        get('question_pLpOMb'),\n  working_hours_raw:      get('question_1roVxW'),\n  working_hours_json:     parseHours(get('question_1roVxW')),\n  welcome_message:        get('question_g56Gpd'),\n  about_text:             get('question_yl5YG4'),\n  cancellation_policy:    get('question_XeP0g4'),\n  booking_buffer_minutes: parseInt(get('question_8d4xWx') ?? '0', 10) || 0,\n  calcom_event_type_id:   get('question_0EROl6'),\n  calendar_id:            get('question_zK5YOq'),\n  notes:                  get('question_5dPxQd'),\n  services:               services,\n  tally_form_id:          body.data.formId,\n  tally_submission:       body.data.submissionId,\n  created_at:             body.data.createdAt,\n}}];\n"
+      },
+      "id": "6e831a7e-534d-41ea-afa4-f3e7b243ad33",
+      "name": "Parse Tally Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenants",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ name: $json.clinic_name, status: 'active', wa_phone_number_id: 'pending-' + $json.tally_submission, timezone: $json.timezone, calendar_id: $json.calendar_id ?? null }) }}",
+        "options": {}
+      },
+      "id": "c9855b57-587b-4cbe-ad41-641989656783",
+      "name": "Supabase — INSERT tenant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recuperar tenant_id del INSERT\nconst parsed   = $('Parse Tally Fields').item.json;\nconst raw      = $input.first().json;\nconst tenant   = Array.isArray(raw) ? raw[0] : raw;\n\nreturn [{ json: { ...parsed, tenant_id: tenant.id, _tenant: tenant } }];"
+      },
+      "id": "ce8bfe65-415d-446b-b2aa-973ed20da05b",
+      "name": "Recover tenant_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenant_admins",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ tenant_id: $json.tenant_id, admin_wa: $json.admin_wa, role: 'owner', is_active: true }) }}",
+        "options": {}
+      },
+      "id": "80409745-13d1-4329-af5d-109fccf04722",
+      "name": "Supabase — INSERT tenant_admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Recover tenant_id').item.json;\nreturn [{ json: e }];"
+      },
+      "id": "0541839f-1825-41c6-82f0-189f2b83cb6d",
+      "name": "Recover after admin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/tenant_settings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ tenant_id:              $json.tenant_id, business_address:       $json.business_address, google_maps_url:        $json.google_maps_url ?? null, welcome_message:        $json.welcome_message ?? null, about_text:             $json.about_text ?? null, cancellation_policy:    $json.cancellation_policy ?? null, booking_buffer_minutes: $json.booking_buffer_minutes ?? 0, calcom_event_type_id:   $json.calcom_event_type_id ?? null, working_hours_json:     $json.working_hours_json ?? {}, faq_json:               [], is_bot_enabled:         true }) }}",
+        "options": {}
+      },
+      "id": "4d8b8437-f19c-478f-a556-cc0580eb9912",
+      "name": "Supabase — INSERT tenant_settings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $('Recover after admin').item.json;\nreturn [{ json: e }];"
+      },
+      "id": "875ca6b3-4552-48c2-a161-89307833e25d",
+      "name": "Recover after settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Expandir servicios — uno por item para el Loop\nconst e        = $input.first().json;\nconst services = e.services ?? [];\n\nreturn services.map(s => ({\n  json: {\n    tenant_id:        e.tenant_id,\n    name:             s.name,\n    price:            s.price,\n    duration_minutes: s.duration_minutes,\n    is_active:        true\n  }\n}));"
+      },
+      "id": "c3ab5de3-bf0e-45b9-aa7a-12d7794e89f3",
+      "name": "Expand Servicios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/services",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ tenant_id: $json.tenant_id, name: $json.name, price: $json.price, duration_minutes: $json.duration_minutes, is_active: $json.is_active }) }}",
+        "options": {}
+      },
+      "id": "d841d470-0566-499a-9ccd-d8f0eefb1b8b",
+      "name": "Supabase — INSERT service",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\nconst first = $('Recover after settings').item.json;\nconst svcCount = items.filter(i => i.json?.tenant_id && i.json?.name).length;\n\nreturn [{ json: {\n  status:           'onboarding_complete',\n  tenant_id:        first.tenant_id,\n  clinic_name:      first.clinic_name,\n  doctor_name:      first.doctor_name,\n  admin_wa:         first.admin_wa,\n  timezone:         first.timezone,\n  calcom_event_id:  first.calcom_event_type_id ?? null,\n  services_created: svcCount,\n  working_hours:    first.working_hours_json ?? {},\n  pending_steps: [\n    'Asignar evo_instance_name en tabla tenants',\n    'Conectar WhatsApp Business en Evolution API',\n    first.calcom_event_type_id ? null : 'Configurar Cal.com Event Type ID',\n  ].filter(Boolean),\n  note: 'Tenant creado correctamente. Ver pending_steps para completar la configuración.',\n}}];\n"
+      },
+      "id": "c79a2982-c55e-46d9-97d3-93d6bec8181a",
+      "name": "Build Resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Construir mensaje de bienvenida para el admin de la clínica\nconst e = $input.first().json;\nconst pending = (e.pending_steps ?? []).map(s => `• ${s}`).join('\\n');\nconst body =\n  `✅ *¡Clínica registrada exitosamente!*\\n\\n` +\n  `🏥 *${e.clinic_name}*\\n` +\n  `👨‍⚕️ ${e.doctor_name}\\n\\n` +\n  `Se crearon *${e.services_created}* servicio(s).\\n\\n` +\n  (pending ? `📋 *Pasos pendientes:*\\n${pending}\\n\\n` : '') +\n  `Tu ID de clínica: \\`${e.tenant_id}\\`\\n\\n` +\n  `_ClinicFlow — Sistema de citas automatizado_`;\n\nreturn [{\n  json: {\n    ...e,\n    _outbound_admin: {\n      wa_number: e.admin_wa,\n      body:      body\n    }\n  }\n}];\n"
+      },
+      "id": "f7065d94-9b67-4a56-87d0-f518728399ad",
+      "name": "Build Bienvenida Admin",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://clinicflow-evolution:8080/message/sendText/{{ $env.CF_EVO_INSTANCE }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.CF_EVO_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ number: $json._outbound_admin.wa_number, text:   $json._outbound_admin.body }) }}",
+        "options": {}
+      },
+      "id": "3ad11de3-3fa9-4b17-83c6-7b0ac713346e",
+      "name": "Evolution — Notificar admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        0
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook POST Tally": {
+      "main": [
+        [
+          {
+            "node": "Parse Tally Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Tally Fields": {
+      "main": [
+        [
+          {
+            "node": "Supabase — INSERT tenant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — INSERT tenant": {
+      "main": [
+        [
+          {
+            "node": "Recover tenant_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover tenant_id": {
+      "main": [
+        [
+          {
+            "node": "Supabase — INSERT tenant_admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — INSERT tenant_admin": {
+      "main": [
+        [
+          {
+            "node": "Recover after admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover after admin": {
+      "main": [
+        [
+          {
+            "node": "Supabase — INSERT tenant_settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — INSERT tenant_settings": {
+      "main": [
+        [
+          {
+            "node": "Recover after settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover after settings": {
+      "main": [
+        [
+          {
+            "node": "Expand Servicios",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Servicios": {
+      "main": [
+        [
+          {
+            "node": "Supabase — INSERT service",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — INSERT service": {
+      "main": [
+        [
+          {
+            "node": "Build Resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Resumen": {
+      "main": [
+        [
+          {
+            "node": "Build Bienvenida Admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Bienvenida Admin": {
+      "main": [
+        [
+          {
+            "node": "Evolution — Notificar admin",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "0223a658-a144-469f-a024-4b9649849e1f",
+  "activeVersionId": "0223a658-a144-469f-a024-4b9649849e1f",
+  "versionCounter": 24,
+  "triggerCount": 1,
+  "tags": [
+    {
+      "updatedAt": "2026-03-15T01:39:56.756Z",
+      "createdAt": "2026-03-15T01:39:56.756Z",
+      "id": "RmxB2KXILpT0s7WV",
+      "name": "onboarding"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.678Z",
+      "createdAt": "2026-10-29T05:33:29.678Z",
+      "role": "workflow:owner",
+      "workflowId": "rWe8GVa8T8SrkdOV",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version 39100471",
+    "description": ""
+  }
+}

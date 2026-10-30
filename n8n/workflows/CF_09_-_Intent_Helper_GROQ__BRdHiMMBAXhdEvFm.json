@@ -1,0 +1,445 @@
+{
+  "updatedAt": "2026-10-29T05:36:48.000Z",
+  "createdAt": "2026-04-20T15:11:42.064Z",
+  "id": "BRdHiMMBAXhdEvFm",
+  "name": "[CF] 09 - Intent Helper (GROQ)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d86e9378-6f8b-4b9f-a5a8-f2eb39873ff0",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── CF-09 · Build GROQ Prompt ────────────────────────────────────────\nconst envelope   = $input.first().json;\nconst msgText    = String(envelope.message?.text ?? '').trim();\nconst clinicName = envelope.tenant?.name ?? 'la clínica';\nconst step       = envelope.session?.current_step ?? 'idle';\n\nlet sessionHint = '';\nif (step !== 'idle') {\n  sessionHint = `\\nNota: el usuario está en el paso de sesión \"${step}\".`;\n}\n\nconst systemPrompt =\n  `Eres un clasificador de intenciones para el bot de WhatsApp de \"${clinicName}\".\\n` +\n  `Clasifica el mensaje del usuario en UNA de estas intenciones.${sessionHint}\\n\\n` +\n  `Intenciones disponibles:\\n` +\n  `- booking: agendar, reservar o pedir una cita nueva\\n` +\n  `- catalog: SOLO cuando el usuario pregunta EXPLÍCITAMENTE por servicios, precios o tratamientos disponibles\\n` +\n  `- cancel: cancelar una cita existente\\n` +\n  `- reschedule: reprogramar, cambiar o mover una cita existente\\n` +\n  `- faq: preguntas médicas (dolor, síntomas, medicamentos, si puede tomar algo), ` +\n  `horarios, ubicación, formas de pago, información general, cualquier pregunta que no sea agendar\\n` +\n  `- greeting: saludo sin intención específica (hola, buenos días, gracias, etc.)\\n` +\n  `- other: no encaja claramente en ninguna categoría anterior\\n\\n` +\n  `REGLAS CRÍTICAS DE CLASIFICACIÓN:\\n` +\n  `1. Dolor, síntomas, medicamentos, preguntas de salud → SIEMPRE \"faq\"\\n` +\n  `2. Un número solo sin contexto (1, 2, 3, etc.) → SIEMPRE \"faq\"\\n` +\n  `3. \"catalog\" es ÚNICAMENTE para \"¿qué servicios tienen?\" o \"¿cuánto cuesta X?\"\\n` +\n  `4. Mencionar una parte del cuerpo (muela, espalda, cabeza) NO es \"catalog\"\\n` +\n  `5. Si hay duda entre catalog y faq → elige \"faq\"\\n\\n` +\n  `Responde ÚNICAMENTE con JSON válido, sin texto adicional, sin backticks:\\n` +\n  `{\"intent\": \"<intent>\", \"confidence\": <número entre 0.0 y 1.0>}`;\n\nreturn [{\n  json: {\n    ...envelope,\n    _groq_messages: [\n      { role: 'system', content: systemPrompt },\n      { role: 'user',   content: msgText || '(mensaje sin texto)' }\n    ]\n  }\n}];"
+      },
+      "id": "1c9ff925-e724-4011-b323-1ecadaba2220",
+      "name": "Build GROQ Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        224
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  model: 'llama-3.1-8b-instant',\n  messages: $json._groq_messages,\n  max_tokens: 150,\n  temperature: 0.1,\n  response_format: { type: 'json_object' }\n}) }}",
+        "options": {}
+      },
+      "id": "ef874902-ac14-48b8-9810-855921d56284",
+      "name": "GROQ — Classify Intent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -720,
+        224
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── CF-09 · Parse & Route Intent ────────────────────────────────────\n// Parsea la respuesta de GROQ y convierte la intención en una _route\n// compatible con el resto del sistema ClinicFlow.\n\nconst envelope  = $('Build GROQ Prompt').item.json;\nconst groqResp  = $input.first().json;\n\n// ── 1. Extraer texto de la respuesta GROQ ──────────────────────────\nlet intent     = 'other';\nlet confidence = 0;\n\ntry {\n  const content = groqResp?.choices?.[0]?.message?.content ?? '';\n  const cleaned = content.replace(/```json|```/g, '').trim();\n  const parsed  = JSON.parse(cleaned);\n  intent     = String(parsed?.intent ?? 'other').toLowerCase().trim();\n  confidence = Number(parsed?.confidence ?? 0);\n} catch (e) {\n  // GROQ no disponible o respuesta no parseable → defecto: faq\n  intent     = 'faq';\n  confidence = 0;\n}\n\n// ── 2. Validar que la intención sea una conocida ───────────────────\nconst validIntents = ['booking', 'catalog', 'cancel', 'reschedule', 'faq', 'greeting', 'other'];\nif (!validIntents.includes(intent)) intent = 'other';\n\n// ── 3. Mapear intención → _route y campos extra ──────────────────\nlet route   = 'faq';\nlet crExtra = {};\n\nswitch (intent) {\n  case 'booking':\n  case 'catalog':\n    route = 'catalog_engine';\n    break;\n  case 'cancel':\n    route   = 'cancel_reschedule';\n    crExtra = { _cr_action: 'cancel_lookup' };\n    break;\n  case 'reschedule':\n    route   = 'cancel_reschedule';\n    crExtra = { _cr_action: 'reschedule_lookup' };\n    break;\n  case 'greeting':\n    route = 'greeting';\n    break;\n  case 'faq':\n  case 'other':\n  default:\n    route = 'faq';\n    break;\n}\n\nreturn [{\n  json: {\n    ...envelope,\n    ...crExtra,\n    _route:              route,\n    _intent:             intent,\n    _intent_confidence:  confidence,\n    routing: {\n      intent,\n      confidence,\n      source: 'groq-intent-09'\n    }\n  }\n}];"
+      },
+      "id": "949db9ea-3d0d-4990-ac43-998d07a302bd",
+      "name": "Parse & Route Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "catalog_engine",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c09-sw-01"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "catalog_engine"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "cancel_reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c09-sw-02"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel_reschedule"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "faq",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c09-sw-03"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "faq"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "greeting",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c09-sw-04"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "greeting"
+            }
+          ]
+        },
+        "options": {
+          "ignoreCase": false
+        }
+      },
+      "id": "d605eb84-399a-4335-bf06-f551e929f01d",
+      "name": "Switch Intent Route",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -240,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "tv7WUNmbxaxGvWSN",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/tv7WUNmbxaxGvWSN",
+          "cachedResultName": "[CF] 08 - Catalog Engine"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "28e1c581-209e-4d65-b1fe-870a44c292b3",
+      "name": "→ CF-08 Catalog Engine",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "vo8DMR34ff68xDnS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/vo8DMR34ff68xDnS",
+          "cachedResultName": "[CF] 13 - Cancel / Reschedule Processor"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "a31935f2-54b4-4084-bab3-d6370fbfddbe",
+      "name": "→ CF-13 Cancel/Reschedule",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "M5CToAdeEBxfYnvz",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/M5CToAdeEBxfYnvz",
+          "cachedResultName": "[CF] 10 - FAQ Helper (GROQ + tenant context)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "3f68eff5-6b31-4b23-b02d-e7375fb3272a",
+      "name": "→ CF-10 FAQ Helper",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Saludos: construir menú de bienvenida igual que el Router\nconst e       = $input.first().json;\nconst name    = e.user?.wa_name ?? '';\nconst clinic  = e.tenant?.name  ?? 'nuestra clínica';\nconst welcome = e.tenant?.settings?.welcome_message;\nconst body    = welcome ?? `👋 ¡Hola${name ? ' ' + name : ''}! Bienvenido/a a *${clinic}*.\\n\\n¿En qué puedo ayudarte hoy?`;\n\nreturn [{\n  json: {\n    ...e,\n    _outbound: {\n      type: 'text',\n      body: body + '\\n\\n1. 📅 Agendar cita\\n2. 🦷 Ver servicios\\n3. ❓ Preguntas frecuentes\\n\\n_Responde con el número o escribe tu opción._'\n    }\n  }\n}];"
+      },
+      "id": "e7287f72-8fec-4f42-8b47-eed414955116",
+      "name": "Build Greeting Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "005ec553-80ce-44b9-8f43-612304ce3178",
+      "name": "→ CF-14 Greeting Outbound",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        512
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build GROQ Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build GROQ Prompt": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Classify Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Classify Intent": {
+      "main": [
+        [
+          {
+            "node": "Parse & Route Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Route Intent": {
+      "main": [
+        [
+          {
+            "node": "Switch Intent Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Intent Route": {
+      "main": [
+        [
+          {
+            "node": "→ CF-08 Catalog Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-13 Cancel/Reschedule",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-10 FAQ Helper",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Greeting Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Greeting Response": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Greeting Outbound",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "24298486-1cea-4d9b-a22c-a68150eff68f",
+  "activeVersionId": "24298486-1cea-4d9b-a22c-a68150eff68f",
+  "versionCounter": 29,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-04-03T22:42:30.774Z",
+      "createdAt": "2026-04-03T22:42:30.774Z",
+      "id": "3eFMxsK6nw9erW78",
+      "name": "intent"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    },
+    {
+      "updatedAt": "2026-04-03T22:42:30.855Z",
+      "createdAt": "2026-04-03T22:42:30.855Z",
+      "id": "qkjcrn24PjrkQAKY",
+      "name": "groq"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.617Z",
+      "createdAt": "2026-10-29T05:33:29.617Z",
+      "role": "workflow:owner",
+      "workflowId": "BRdHiMMBAXhdEvFm",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version a9b504eb",
+    "description": ""
+  }
+}

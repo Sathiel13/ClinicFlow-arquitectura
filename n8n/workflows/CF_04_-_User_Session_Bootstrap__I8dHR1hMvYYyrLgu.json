@@ -1,0 +1,524 @@
+{
+  "updatedAt": "2026-10-29T05:37:10.000Z",
+  "createdAt": "2026-04-20T14:35:16.694Z",
+  "id": "I8dHR1hMvYYyrLgu",
+  "name": "[CF] 04 - User & Session Bootstrap",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "80effaa6-7ce6-40f3-81f7-6222b3711d56",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1408,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/users",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "on_conflict",
+              "value": "tenant_id,wa_number"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ tenant_id: $json.tenant.tenant_id, wa_number: $json.user.wa_number, wa_name: $json.user.wa_name, updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "3c114a10-3bd7-458e-97a2-1a07b23a7022",
+      "name": "Supabase — UPSERT user",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1168,
+        128
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// PostgREST con return=representation devuelve array\n// Extraemos user_id y lo mergeamos con el envelope original\nconst envelope = $('Execute Workflow Trigger').item.json;\nconst raw      = $input.first().json;\nconst user     = Array.isArray(raw) ? raw[0] : raw;\n\nreturn [{\n  json: {\n    ...envelope,\n    user: {\n      ...envelope.user,\n      user_id: user.id\n    },\n    _user_row: user\n  }\n}];"
+      },
+      "id": "7fa7eaae-333f-4c6f-a236-7164ed40351f",
+      "name": "Recover user_id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "user_id",
+              "value": "=eq.{{ $json.user.user_id }}"
+            },
+            {
+              "name": "select",
+              "value": "*"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c587139b-78f7-4b22-b715-f496b8dd5468",
+      "name": "Supabase — GET session_state",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -688,
+        128
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Recover user_id').item.json;\nconst raw      = $input.first().json;\n\n// Si existe sesión en DB, usarla como fuente de verdad\n// Si no existe, crear una nueva con valores por defecto\nconst existingSession = Array.isArray(raw) ? raw[0] : (raw?.id ? raw : null);\n\nlet sessionData;\n\nif (existingSession) {\n  // ── Sesión existente: respetar el estado real de DB ──────────────\n  // NO sobreescribir current_step con el del envelope — DB manda\n  sessionData = {\n    session_id:         existingSession.id,\n    current_step:       existingSession.current_step       ?? 'idle',\n    is_expired:         existingSession.is_expired         ?? false,\n    active_service_id:  existingSession.active_service_id  ?? null,\n    active_provider_id: existingSession.active_provider_id ?? null,\n    active_patient_id:  existingSession.active_patient_id  ?? null,\n    pending_slot_start: existingSession.pending_slot_start ?? null,\n    pending_slot_end:   existingSession.pending_slot_end   ?? null,\n    pending_context:    existingSession.pending_context    ?? {},\n    last_interaction_at: existingSession.last_interaction_at ?? null\n  };\n} else {\n  // ── Sesión nueva: crear con valores limpios ───────────────────────\n  sessionData = {\n    session_id:         null,\n    current_step:       'idle',\n    is_expired:         false,\n    active_service_id:  null,\n    active_provider_id: null,\n    active_patient_id:  null,\n    pending_slot_start: null,\n    pending_slot_end:   null,\n    pending_context:    {},\n    last_interaction_at: null\n  };\n}\n\nreturn [{ json: {\n  ...envelope,\n  user: { ...envelope.user },\n  patient: { active_patient_id: sessionData.active_patient_id },\n  session: sessionData,\n  _user_row: undefined\n}}];"
+      },
+      "id": "edb3bee3-0285-4e12-8343-72dd941eb595",
+      "name": "Recover session + Enrich Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3ad3e10b-3ce4-473e-992c-e81514847145",
+              "leftValue": "={{ !!$json.session.session_id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9bab4e8b-f869-40ac-b885-48515fd15f1e",
+      "name": "IF — Session exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "=eq.{{ $json.tenant.tenant_id }}"
+            },
+            {
+              "name": "user_id",
+              "value": "=eq.{{ $json.user.user_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ last_interaction_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "13116b71-0a6f-41d7-b633-3150477e872c",
+      "name": "Supabase — PATCH session last_interaction_at",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Recover session + Enrich Envelope').item.json;\nconst raw      = $input.first().json;\nconst row      = Array.isArray(raw) ? raw[0] : (raw?.id ? raw : null);\n\nconst lastInteraction = row?.last_interaction_at ?? new Date().toISOString();\n\nreturn [{\n  json: {\n    ...envelope,\n    patient: {\n      active_patient_id: envelope.session.active_patient_id ?? null\n    },\n    session: {\n      ...envelope.session,\n      last_interaction_at: lastInteraction\n    },\n    _user_row: undefined\n  }\n}];"
+      },
+      "id": "06256f7e-f1f4-4ba0-a37a-c0e3d789f221",
+      "name": "Envelope — Existing session ready",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ tenant_id: $json.tenant.tenant_id, user_id: $json.user.user_id, current_step: 'idle', is_expired: false, active_service_id: null, active_provider_id: null, active_patient_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {}, last_interaction_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "dc9cde27-c16c-4e0f-91fb-a1213a296bf5",
+      "name": "Supabase — INSERT session_state",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        240
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope = $('Recover session + Enrich Envelope').item.json;\nconst raw      = $input.first().json;\nconst row      = Array.isArray(raw) ? raw[0] : raw;\n\nreturn [{\n  json: {\n    ...envelope,\n    patient: {\n      active_patient_id: row?.active_patient_id ?? null\n    },\n    session: {\n      session_id:         row?.id ?? null,\n      current_step:       row?.current_step       ?? 'idle',\n      is_expired:         row?.is_expired         ?? false,\n      active_service_id:  row?.active_service_id  ?? null,\n      active_provider_id: row?.active_provider_id ?? null,\n      active_patient_id:  row?.active_patient_id  ?? null,\n      pending_slot_start: row?.pending_slot_start ?? null,\n      pending_slot_end:   row?.pending_slot_end   ?? null,\n      pending_context:    row?.pending_context    ?? {},\n      last_interaction_at: row?.last_interaction_at ?? null\n    },\n    _user_row: undefined\n  }\n}];"
+      },
+      "id": "3306fbd4-73f1-4d73-8935-5f6c9ce14831",
+      "name": "Envelope — Inserted session ready",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "78SjNK1nbbRFE6Op",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/78SjNK1nbbRFE6Op",
+          "cachedResultName": "[CF] 05 - Session Expiration Guard"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "0a4a7893-701a-4664-82e8-8b638a08537d",
+      "name": "→ CF-05 Session Expiration Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        128
+      ]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Supabase — UPSERT user",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — UPSERT user": {
+      "main": [
+        [
+          {
+            "node": "Recover user_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover user_id": {
+      "main": [
+        [
+          {
+            "node": "Supabase — GET session_state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — GET session_state": {
+      "main": [
+        [
+          {
+            "node": "Recover session + Enrich Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover session + Enrich Envelope": {
+      "main": [
+        [
+          {
+            "node": "IF — Session exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Session exists?": {
+      "main": [
+        [
+          {
+            "node": "Supabase — PATCH session last_interaction_at",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Supabase — INSERT session_state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — PATCH session last_interaction_at": {
+      "main": [
+        [
+          {
+            "node": "Envelope — Existing session ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — INSERT session_state": {
+      "main": [
+        [
+          {
+            "node": "Envelope — Inserted session ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envelope — Existing session ready": {
+      "main": [
+        [
+          {
+            "node": "→ CF-05 Session Expiration Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envelope — Inserted session ready": {
+      "main": [
+        [
+          {
+            "node": "→ CF-05 Session Expiration Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "9d5adf9e-2198-4004-ad2b-d6fcaf9bf4af",
+  "activeVersionId": "9d5adf9e-2198-4004-ad2b-d6fcaf9bf4af",
+  "versionCounter": 29,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-14T19:18:36.196Z",
+      "createdAt": "2026-03-14T19:18:36.196Z",
+      "id": "HJe3rbyPXvLl0fK7",
+      "name": "session"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.640Z",
+      "createdAt": "2026-10-29T05:33:29.640Z",
+      "role": "workflow:owner",
+      "workflowId": "I8dHR1hMvYYyrLgu",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version e7c20e3f",
+    "description": ""
+  }
+}

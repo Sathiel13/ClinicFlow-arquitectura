@@ -1,0 +1,983 @@
+{
+  "updatedAt": "2026-10-29T05:36:17.000Z",
+  "createdAt": "2026-04-20T14:36:25.775Z",
+  "id": "3LTDnXPdGt04TJSd",
+  "name": "[CF] 06 - Router (State + Button-first)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "68eeac0b-38a6-4afb-b44d-f005ea42f618",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const envelope    = $input.first().json;\nconst interactive = envelope.message?.interactive ?? {};\nconst messageText = String(envelope.message?.text ?? '').trim();\nconst textLower   = messageText.toLowerCase().trim();\nconst session     = envelope.session ?? {};\nconst step        = session.current_step ?? 'idle';\nconst pending     = session.pending_context ?? {};\nconst botEnabled  = envelope.tenant?.settings?.is_bot_enabled ?? true;\nconst tz          = envelope.tenant?.timezone ?? 'America/Mexico_City';\n\nif (!botEnabled) {\n  return [{ json: { ...envelope, _route: 'bot_disabled' } }];\n}\n\n\n// ── ADMIN: texto directo ────────────────────────────────────\nconst adminWords = ['#admin', 'admin panel', 'panel admin', 'administrar'];\nconst wantsAdmin = adminWords.some(w => textLower.includes(w));\n\nconst normalize = (v) =>\n  String(v ?? '')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .trim()\n    .replace(/\\s+/g, ' ');\n\nconst isInt = (v) => /^\\d+$/.test(String(v ?? '').trim());\n\nconst fmtFull = (iso, timeZone = 'America/Mexico_City') => {\n  try {\n    return new Intl.DateTimeFormat('es-MX', {\n      timeZone,\n      weekday: 'short',\n      day: '2-digit',\n      month: 'short',\n      hour: '2-digit',\n      minute: '2-digit',\n      hour12: true,\n    }).format(new Date(iso));\n  } catch {\n    return '';\n  }\n};\n\nconst normalizedText  = normalize(messageText);\nconst normalizedWords = normalizedText.replace(/[^a-z0-9: ]+/g, ' ').replace(/\\s+/g, ' ').trim();\n\nconst getLocalParts = (iso, timeZone = 'America/Mexico_City') => {\n  const d = new Date(iso);\n  const parts = new Intl.DateTimeFormat('en-US', {\n    timeZone,\n    year: 'numeric',\n    month: 'numeric',\n    day: 'numeric',\n    hour: 'numeric',\n    minute: 'numeric',\n    hourCycle: 'h23',\n  }).formatToParts(d).reduce((acc, p) => {\n    if (p.type !== 'literal') acc[p.type] = Number(p.value);\n    return acc;\n  }, {});\n\n  const weekdayLabel = normalize(new Intl.DateTimeFormat('es-MX', {\n    timeZone,\n    weekday: 'long',\n  }).format(d));\n\n  return {\n    year: parts.year,\n    month: parts.month,\n    day: parts.day,\n    hour: parts.hour,\n    minute: parts.minute,\n    weekday: weekdayLabel,\n  };\n};\n\nconst addLocalDays = (date, days) => new Date(date.getTime() + days * 24 * 60 * 60 * 1000);\n\nconst parseSlotRequest = (text, slots, timeZone = 'America/Mexico_City') => {\n  if (!text || !Array.isArray(slots) || slots.length === 0) return null;\n\n  const months = {\n    enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,\n    julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10,\n    noviembre: 11, diciembre: 12,\n  };\n  const weekdays = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];\n  const hasDateWord = /(hoy|manana|pasado manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|\\d{1,2}[\\/-]\\d{1,2})/.test(text);\n\n  let requestedDay = null;\n  let requestedMonth = null;\n  let requestedWeekday = weekdays.find((w) => text.includes(w)) ?? null;\n\n  const longDate = text.match(/\\b(\\d{1,2})\\s*(?:de\\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\\b/);\n  if (longDate) {\n    requestedDay = Number(longDate[1]);\n    requestedMonth = months[longDate[2]];\n  }\n\n  const slashDate = text.match(/\\b(\\d{1,2})[\\/-](\\d{1,2})(?:[\\/-](\\d{2,4}))?\\b/);\n  if (!longDate && slashDate) {\n    requestedDay = Number(slashDate[1]);\n    requestedMonth = Number(slashDate[2]);\n  }\n\n  const nowParts = getLocalParts(new Date().toISOString(), timeZone);\n  if (text.includes('pasado manana')) {\n    const target = getLocalParts(addLocalDays(new Date(), 2).toISOString(), timeZone);\n    requestedDay = target.day;\n    requestedMonth = target.month;\n  } else if (text.includes('manana')) {\n    const target = getLocalParts(addLocalDays(new Date(), 1).toISOString(), timeZone);\n    requestedDay = target.day;\n    requestedMonth = target.month;\n  } else if (text.includes('hoy')) {\n    requestedDay = nowParts.day;\n    requestedMonth = nowParts.month;\n  }\n\n  const timeCandidates = [];\n  const pushTime = (hourRaw, minuteRaw, meridianRaw, dayPartRaw) => {\n    let hour = Number(hourRaw);\n    const minute = minuteRaw == null || minuteRaw === '' ? 0 : Number(minuteRaw);\n    const meridian = normalize(meridianRaw ?? '');\n    const dayPart = normalize(dayPartRaw ?? '');\n    if (!Number.isFinite(hour) || hour < 0 || hour > 23 || !Number.isFinite(minute) || minute > 59) return;\n\n    if (meridian === 'pm' && hour < 12) hour += 12;\n    if (meridian === 'am' && hour === 12) hour = 0;\n    if ((dayPart === 'tarde' || dayPart === 'noche') && hour < 12) hour += 12;\n    if (dayPart === 'manana' && hour === 12) hour = 0;\n    timeCandidates.push({ hour, minute });\n  };\n\n  let m;\n  if ((m = text.match(/(?:a las|alas|de las|las)\\s+(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b/))) pushTime(m[1], m[2], m[3], null);\n  if ((m = text.match(/\\b(\\d{1,2}):(\\d{2})\\s*(am|pm)?\\b/))) pushTime(m[1], m[2], m[3], null);\n  if ((m = text.match(/\\b(\\d{1,2})\\s*(am|pm)\\b/))) pushTime(m[1], null, m[2], null);\n  if ((m = text.match(/\\b(\\d{1,2})\\s+de la\\s+(manana|tarde|noche)\\b/))) pushTime(m[1], null, null, m[2]);\n\n  if (timeCandidates.length === 0) return null;\n\n  const ranked = slots\n    .map((slot, index) => {\n      const p = getLocalParts(slot.start, timeZone);\n      let score = 0;\n      const timeMatch = timeCandidates.some((t) => t.hour === p.hour && t.minute === p.minute);\n      if (!timeMatch) return null;\n      score += 20;\n      if (requestedDay != null) score += p.day === requestedDay ? 12 : -100;\n      if (requestedMonth != null) score += p.month === requestedMonth ? 12 : -100;\n      if (requestedWeekday) score += p.weekday === requestedWeekday ? 6 : -20;\n      if (!hasDateWord) score += Math.max(0, 5 - index);\n      return { slot, index, score };\n    })\n    .filter(Boolean)\n    .filter((r) => r.score >= 20)\n    .sort((a, b) => (b.score - a.score) || (a.index - b.index));\n\n  return ranked[0]?.slot ?? null;\n};\nconst availableSlots  = Array.isArray(pending.available_slots) ? pending.available_slots : [];\nconst apptsForAction  = Array.isArray(pending.appointments_for_action) ? pending.appointments_for_action : [];\nconst activePatientId = session.active_patient_id || envelope.patient?.active_patient_id || null;\nconst activeServiceId = session.active_service_id || null;\nconst activeProviderId = session.active_provider_id || pending.active_provider_id || pending.provider_id || null;\n\nconst menuWords    = ['hola', 'ola', 'buen dia', 'buenos dias', 'buenas tardes', 'buenas noches', 'menu', 'menú', 'inicio', 'start', 'ayuda', 'help'];\nconst cancelWords  = ['cancelar', 'cancela', 'cancel', 'dar de baja'];\nconst reschWords   = ['reagendar', 'reprogramar', 'cambiar cita', 'mover cita', 'reschedule'];\nconst bookWords    = ['agendar', 'reservar', 'quiero cita', 'necesito cita', 'nueva cita', 'consulta', 'consultar', 'doctor', 'doctora', 'medico', 'médico', 'especialista', 'neumologo', 'neumólogo', 'cardiologo', 'cardiólogo', 'pediatra', 'traumatologo', 'traumatólogo', 'book'];\nconst catalogWords = ['servicio', 'servicios', 'precio', 'precios', 'tratamiento', 'tratamientos'];\n\nconst wantsMenu      = menuWords.some(w => normalizedText.includes(normalize(w)));\nconst wantsCancel    = cancelWords.some(w => normalizedText.includes(normalize(w)));\nconst wantsResched   = reschWords.some(w => normalizedText.includes(normalize(w)));\nconst wantsBooking   = bookWords.some(w => normalizedText.includes(normalize(w)));\nconst wantsCatalog   = catalogWords.some(w => normalizedText.includes(normalize(w)));\n\nconst cleanToMenu = () => [{\n  json: {\n    ...envelope,\n    patient: {\n      ...(envelope.patient ?? {}),\n      active_patient_id: null,\n    },\n    session: {\n      ...session,\n      current_step: 'idle',\n      pending_context: {},\n      pending_slot_start: null,\n      pending_slot_end: null,\n      active_service_id: null,\n      active_patient_id: null,\n      active_provider_id: null,\n    },\n    _session_update: {\n      current_step: 'idle',\n      pending_context: {},\n      pending_slot_start: null,\n      pending_slot_end: null,\n      active_service_id: null,\n      active_patient_id: null,\n      active_provider_id: null,\n    },\n    _route: 'welcome_menu',\n  }\n}];\nconst consumeCurrentInput = () => ({\n  _input_consumed: true,\n  _consumed_message_id: envelope.message?.message_id ?? null,\n});\n\nconst routeToCatalog = (extra = {}) => [{\n  json: {\n    ...envelope,\n    ...extra,\n    _route: 'catalog_engine',\n  }\n}];\n\nconst routeToPatientManager = (extra = {}) => [{\n  json: {\n    ...envelope,\n    ...extra,\n    _route: 'patient_manager',\n  }\n}];\n\nconst routeToAvailability = (extra = {}) => [{\n  json: {\n    ...envelope,\n    ...extra,\n    _route: 'availability',\n  }\n}];\n\nconst routeToBooking = (slot, extra = {}) => [{\n  json: {\n    ...envelope,\n    ...extra,\n    _selected_slot: slot,\n    session: {\n      ...session,\n      current_step: 'confirming',\n      pending_slot_start: slot?.start ?? null,\n      pending_slot_end: slot?.end ?? null,\n    },\n    _session_update: {\n      current_step: 'confirming',\n      pending_slot_start: slot?.start ?? null,\n      pending_slot_end: slot?.end ?? null,\n      active_provider_id: activeProviderId,\n    },\n    _route: 'booking',\n  }\n}];\n\n// ── PRIORIDAD 1: INTERACTIVOS ────────────────────────────────────────\nif (interactive.id) {\n  const id = interactive.id;\n\n  if (id === 'CF:START' || id === 'CF:MENU') {\n    return cleanToMenu();\n  }\n\n  if (id.startsWith('CF:PAT:') || id === 'CF:NEWPAT') {\n    return routeToPatientManager();\n  }\n\n  if (id.startsWith('CF:SERV:')) {\n    const sid = id.replace('CF:SERV:', '').trim();\n    return routeToCatalog({\n      session: { ...session, active_service_id: sid || null },\n    });\n  }\n\n  if (id.startsWith('CF:SLOT:')) {\n    const decoded = decodeURIComponent(id.replace('CF:SLOT:', ''));\n    if (!activeServiceId) return routeToCatalog({ _repair_reason: 'slot_without_service' });\n    if (!activePatientId) return routeToPatientManager({ _repair_reason: 'slot_without_patient' });\n    return routeToBooking({ start: decoded, end: null, source: 'interactive' });\n  }\n\n  if (id.startsWith('CF:CANCEL:')) {\n    return [{\n      json: {\n        ...envelope,\n        _route: 'cancel_reschedule',\n        _cr_action: 'cancel',\n        _cr_appointment_id: id.replace('CF:CANCEL:', ''),\n      }\n    }];\n  }\n\n  if (id.startsWith('CF:RESCH:')) {\n    return [{\n      json: {\n        ...envelope,\n        _route: 'cancel_reschedule',\n        _cr_action: 'reschedule',\n        _cr_appointment_id: id.replace('CF:RESCH:', ''),\n      }\n    }];\n  }\n\n  if (id.startsWith('CF:ADMIN:')) {\n    return [{ json: { ...envelope, _route: 'admin' } }];\n  }\n}\n\n\nif (wantsAdmin) {\n  return [{ json: { ...envelope, _route: 'admin' } }];\n}\n\n// ── PRIORIDAD 2: COMANDOS GLOBALES ───────────────────────────────────\nif (wantsCancel) {\n  return [{\n    json: {\n      ...envelope,\n      _route: 'cancel_reschedule',\n      _cr_action: 'cancel_lookup',\n    }\n  }];\n}\n\nif (wantsResched) {\n  return [{\n    json: {\n      ...envelope,\n      _route: 'cancel_reschedule',\n      _cr_action: 'reschedule_lookup',\n    }\n  }];\n}\n\nif (wantsMenu && !wantsBooking && !wantsCatalog && !normalizedText.includes('cita')) {\n  return cleanToMenu();\n}\n\n// ── PRIORIDAD 3: ESTADO DE SESIÓN ────────────────────────────────────\nif (['select_patient', 'awaiting_patient_name'].includes(step)) {\n  return routeToPatientManager();\n}\n\nif (step === 'select_service') {\n  const currentMessageId = envelope.message?.message_id ?? null;\n  const catalogPromptMessageId = pending.catalog_prompt_message_id ?? null;\n\n  const isSameMessageThatOpenedCatalog =\n    !!currentMessageId &&\n    !!catalogPromptMessageId &&\n    currentMessageId === catalogPromptMessageId;\n\n  return routeToCatalog(\n    isSameMessageThatOpenedCatalog\n      ? {\n          _input_consumed: true,\n          _consumed_message_id: currentMessageId,\n          _catalog_origin: 'select_service_same_message_guard',\n        }\n      : {}\n  );\n}\n\nif (step === 'select_provider') {\n  return routeToCatalog();\n}\n\nif (step === 'select_slot') {\n  if (!activeServiceId) return routeToCatalog({ _repair_reason: 'missing_service_before_slots' });\n  if (!activePatientId) return routeToPatientManager({ _repair_reason: 'missing_patient_before_slots' });\n  return routeToAvailability();\n}\n\nif (step === 'awaiting_slot_selection') {\n  let slot = null;\n\n  if (isInt(messageText)) {\n    const idx = Number(messageText) - 1;\n    if (idx >= 0 && idx < availableSlots.length) {\n      slot = availableSlots[idx];\n    }\n  }\n\n\n  if (!slot) {\n    return routeToAvailability({ _slot_selection_invalid: true });\n  }\n\n  if (!activeServiceId) return routeToCatalog({ _repair_reason: 'slot_selection_without_service' });\n  if (!activePatientId) return routeToPatientManager({ _repair_reason: 'slot_selection_without_patient' });\n\n  return routeToBooking(slot);\n}\n\nif (step === 'select_cancel_appointment' || step === 'select_reschedule_appointment') {\n  let appt = null;\n  if (isInt(messageText)) {\n    const idx = Number(messageText) - 1;\n    if (idx >= 0 && idx < apptsForAction.length) {\n      appt = apptsForAction[idx];\n    }\n  }\n\n  if (!appt && normalizedText && apptsForAction.length > 0) {\n    appt = apptsForAction.find((a) => {\n      const label = normalize(fmtFull(a.start_at, tz));\n      return normalizedText === label || label.includes(normalizedText) || normalizedText.includes(label);\n    }) ?? null;\n  }\n\n  const isCancel = step === 'select_cancel_appointment';\n  if (!appt) {\n    return [{\n      json: {\n        ...envelope,\n        _route: 'cancel_reschedule',\n        _cr_action: isCancel ? 'cancel_lookup' : 'reschedule_lookup',\n        _appointment_selection_invalid: true,\n      }\n    }];\n  }\n\n  return [{\n    json: {\n      ...envelope,\n      _route: 'cancel_reschedule',\n      _cr_action: isCancel ? 'cancel' : 'reschedule',\n      _cr_appointment_id: appt.id,\n      _selected_appointment: appt,\n    }\n  }];\n}\n\nif (step === 'confirming') {\n  if (!activeServiceId) return routeToCatalog({ _repair_reason: 'confirming_without_service' });\n  if (!activePatientId) return routeToPatientManager({ _repair_reason: 'confirming_without_patient' });\n  return [{ json: { ...envelope, _route: 'booking' } }];\n}\n\n// ── PRIORIDAD 4: TEXTO LIBRE ─────────────────────────────────────────\nif (wantsBooking) {\n  return activeServiceId\n    ? (activePatientId ? routeToAvailability() : routeToPatientManager())\n    : routeToCatalog({\n        ...consumeCurrentInput(),\n        _catalog_origin: 'text_booking',\n      });\n}\n\nif (wantsCatalog || normalizedText.includes('cita')) {\n  return routeToCatalog({\n    _catalog_origin: 'text_catalog',\n  });\n}\n\nif (isInt(messageText) && step === 'idle') {\n  const n = Number(messageText);\n\n  // 1 = Agendar cita\n  if (n === 1) {\n    return routeToCatalog({\n      ...consumeCurrentInput(),\n      _catalog_origin: 'main_menu_booking',\n    });\n  }\n\n  // 2 = Ver servicios\n  if (n === 2) {\n    return routeToCatalog({\n      ...consumeCurrentInput(),\n      _catalog_origin: 'main_menu_catalog',\n    });\n  }\n\n  // 3 = FAQ\n  if (n === 3) {\n    return [{\n      json: {\n        ...envelope,\n        _route: 'faq',\n        ...consumeCurrentInput(),\n      }\n    }];\n  }\n}\n\nreturn [{ json: { ...envelope, _route: 'intent_helper' } }];"
+      },
+      "id": "8daab887-c326-4fd0-a286-4eb2335fc3e8",
+      "name": "Determinar Ruta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "welcome_menu",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "33fbd859-e478-4318-a834-8d7167103768"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "welcome_menu"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "patient_manager",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "2e9502e4-e7d7-4394-8261-6d5cbbfe8240"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "patient_manager"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "catalog_engine",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "3df17602-da8f-483f-bfff-85b09589ff46"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "catalog_engine"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "fallback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "995df01d-ce1f-4072-9f87-145e4941a14f"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "fallback"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "availability",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "eb0a4996-86f2-44ee-ab32-265e4aeac846"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "availability"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "booking",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "9e77d64b-155a-490f-bd1a-35a90580893f"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "booking"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "cancel_reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c7893aab-b5a0-4357-a544-68bfdfdbb3d6"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel_reschedule"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "intent_helper",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c06-sw-intent"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "intent_helper"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "faq",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c06-sw-faq"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "faq"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "admin",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c06-sw-admin"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "admin"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json._route }}",
+                    "rightValue": "bot_disabled",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c06-sw-botoff"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "bot_disabled"
+            }
+          ]
+        },
+        "options": {
+          "ignoreCase": false
+        }
+      },
+      "id": "96adb96d-8d74-4c89-935f-bbd1ca691723",
+      "name": "Switch Ruta",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -240,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst e       = $input.first().json;\nconst name    = e.user?.wa_name ?? '';\nconst clinic  = e.tenant?.name  ?? 'nuestra clínica';\nconst welcome = e.tenant?.settings?.welcome_message;\n\n// ── Mensaje determinístico (siempre funciona aunque GROQ falle) ──────────\nconst deterministicIntro = welcome\n  ?? `👋 Hola${name ? ' ' + name : ''}! Bienvenido/a a *${clinic}*. ¿En qué puedo ayudarte hoy?`;\n\nconst menuOptions = '\\n\\n1. 📅 Agendar cita\\n2. 🦷 Ver servicios\\n3. ❓ Preguntas frecuentes\\n\\n_Responde con el número o escribe tu opción._';\n\n// ── Prompt GROQ ──────────────────────────────────────────────────────────\nconst system =\n  `Eres el asistente de WhatsApp de \"${clinic}\". ` +\n  `Reescribe el siguiente saludo de bienvenida con un tono más cálido, natural y humano. ` +\n  `REGLAS ESTRICTAS:\\n` +\n  `- Máximo 2 líneas de texto\\n` +\n  `- Conserva el nombre de la clínica exactamente como aparece\\n` +\n  (name ? `- Puedes usar el nombre \"${name}\" para personalizar\\n` : '') +\n  `- Usa 1-2 emojis apropiados. No seas formal ni robótico\\n` +\n  `- Responde SOLO con el saludo, sin menú ni opciones numeradas`;\n\nreturn [{\n  json: {\n    ...e,\n    _fallback_body: deterministicIntro + menuOptions,\n    _menu_options:  menuOptions,\n    _outbound: {\n      type: 'text',\n      body: deterministicIntro + menuOptions\n    },\n    _groq_messages: [\n      { role: 'system', content: system },\n      { role: 'user',   content: deterministicIntro }\n    ]\n  }\n}];\n"
+      },
+      "id": "be721d55-ec4d-4320-bf19-ea106772a288",
+      "name": "Build Welcome Menu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "46pxTzNfW2DAMFJT",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/46pxTzNfW2DAMFJT",
+          "cachedResultName": "[CF] 07 - Patient Manager"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "8edce550-9b8e-430d-8245-a2c1036e5a6f",
+      "name": "→ CF-07 Patient Manager",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "tv7WUNmbxaxGvWSN",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/tv7WUNmbxaxGvWSN",
+          "cachedResultName": "[CF] 08 - Catalog Engine"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "336aa936-b2f2-4a97-96a1-48dfc4ae8ff8",
+      "name": "→ CF-08 Catalog Engine",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst e      = $input.first().json;\nconst clinic = e.tenant?.name ?? 'nuestra clínica';\nconst msgTxt = String(e.message?.text ?? '').trim();\n\nconst deterministicBody =\n  '🤔 No entendí tu mensaje.\\n\\n¿Te ayudo con algo?\\n\\n' +\n  '1. 📅 Agendar cita\\n2. 🦷 Ver servicios\\n3. ❓ Preguntas\\n\\n' +\n  '_Responde con el número o escribe tu opción_';\n\nconst system =\n  `Eres el asistente de WhatsApp de \"${clinic}\". ` +\n  `El usuario escribió algo que no entendiste. ` +\n  `Construye un mensaje amable que reconozca que no entendiste ` +\n  `y ofrezca ayuda de forma natural. ` +\n  `REGLAS:\\n` +\n  `- Máximo 2 líneas\\n` +\n  `- Tono amigable, no robótico\\n` +\n  `- No uses frases genéricas como \"¿En qué puedo ayudarte?\"\\n` +\n  `- 1 emoji máximo\\n` +\n  `- Responde SOLO el texto introductorio, sin opciones numeradas`;\n\nconst userMsg = msgTxt\n  ? `El usuario escribió: \"${msgTxt}\". No pude entender su intención.`\n  : 'El usuario envió un mensaje que no pude clasificar.';\n\nreturn [{\n  json: {\n    ...e,\n    _fallback_body: deterministicBody,\n    _menu_options:  '\\n\\n1. 📅 Agendar cita\\n2. 🦷 Ver servicios\\n3. ❓ Preguntas\\n\\n_Responde con el número o escribe tu opción_',\n    _outbound: { type: 'text', body: deterministicBody },\n    _groq_messages: [\n      { role: 'system', content: system },\n      { role: 'user',   content: userMsg }\n    ]\n  }\n}];\n"
+      },
+      "id": "e01c9ec4-1b8e-40eb-9ea7-dff9be01484c",
+      "name": "Build Fallback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "FZhU5iobUVOHPOEG",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/FZhU5iobUVOHPOEG",
+          "cachedResultName": "[CF] 11 - Availability Engine (Cal.com)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "49856ac9-437e-4c22-be9b-5ffa94846ead",
+      "name": "→ CF-11 Availability",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "wCjeF0Xd7vUXZq7c",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/wCjeF0Xd7vUXZq7c",
+          "cachedResultName": "[CF] 12 - Booking Processor (Cal.com + Supabase)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "8c733350-99e9-4369-870c-745bb793be00",
+      "name": "→ CF-12 Booking",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "vo8DMR34ff68xDnS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/vo8DMR34ff68xDnS",
+          "cachedResultName": "[CF] 13 - Cancel / Reschedule Processor"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "f21339ba-b987-456f-85eb-78aa47111b5d",
+      "name": "→ CF-13 Cancel/Reschedule",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        1120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $input.first().json;\nconst msgs = {\n  admin:       '⚙️ Panel de administración próximamente.',\n  bot_disabled: null\n};\nconst body = msgs[e._route];\nif (!body) return [{ json: { ...e, _outbound: null } }];\nreturn [{ json: { ...e, _outbound: { type:'text',\n  body: body + '\\n\\n¿En qué más puedo ayudarte?\\n\\n1. 📅 Agendar cita'\n}}}];"
+      },
+      "id": "40b0e05e-57ed-4252-a227-bfed544802a6",
+      "name": "Build Stub Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ahFUcS6dBVagPpcv",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ahFUcS6dBVagPpcv",
+          "cachedResultName": "[CF] 14E - WhatsApp Outbound Sender (Evolution)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "714623a7-53c5-4fc4-b2a4-c76bf39fe77e",
+      "name": "→ CF-14 Outbound Sender",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        496,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "BRdHiMMBAXhdEvFm",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/BRdHiMMBAXhdEvFm",
+          "cachedResultName": "[CF] 09 - Intent Helper (GROQ)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "c55d21f8-43ea-47e1-9d85-f897e35857dd",
+      "name": "→ CF-09 Intent Helper",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        1440
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "M5CToAdeEBxfYnvz",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/M5CToAdeEBxfYnvz",
+          "cachedResultName": "[CF] 10 - FAQ Helper (GROQ + tenant context)"
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "3587f55b-3a56-470b-8ad2-7bd14c13f4c5",
+      "name": "→ CF-10 FAQ Helper",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        1584
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ current_step: 'idle', active_service_id: null, active_provider_id: null, active_patient_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {}, is_expired: false, updated_at: new Date().toISOString() }) }}",
+        "options": {}
+      },
+      "id": "a8a6a1d7-ed74-42da-a5cb-99abeaf8ca22",
+      "name": "Supabase — Reset session (menú)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        144
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Supabase return=minimal → vacío. Recuperar desde Build Welcome Menu.\nconst e = $('Build Welcome Menu').item.json;\nreturn [{ json: {\n  ...e,\n  _session_update: undefined\n} }];"
+      },
+      "id": "0a33a828-aac9-4462-ad1a-62b020d26630",
+      "name": "Recover Envelope — Menú",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        144
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "tGp3irtUKdygpZGg",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/tGp3irtUKdygpZGg",
+          "cachedResultName": "[CF] 16 - Admin Flow"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "484de6b3-11c6-4632-8a90-ca370b68b00d",
+      "name": "→ CF-16 Admin Flow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 100, temperature: 0.65 }) }}",
+        "options": {}
+      },
+      "id": "ca4a5100-0138-4900-b251-20d394618904",
+      "name": "GROQ — Humanizar bienvenida",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        144
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Recuperar contexto del nodo anterior en la cadena\n// Recover Envelope — Menú ya tiene el envelope limpio con _fallback_body y _menu_options\nconst ctx      = $('Recover Envelope — Menú').item.json;\nconst groqResp = $input.first().json;\n\nlet aiIntro = null;\ntry {\n  aiIntro = String(groqResp?.choices?.[0]?.message?.content ?? '').trim();\n} catch (_) {}\n\n// Validar: debe tener contenido mínimo y no incluir opciones numeradas\nconst isValid = aiIntro &&\n  aiIntro.length >= 15 &&\n  aiIntro.length <= 300 &&\n  !/^\\d+\\./.test(aiIntro);  // no debe empezar con \"1.\"\n\nconst finalBody = isValid\n  ? aiIntro + (ctx._menu_options ?? '')\n  : ctx._fallback_body;\n\nreturn [{\n  json: {\n    ...ctx,\n    _groq_messages:  undefined,\n    _fallback_body:  undefined,\n    _menu_options:   undefined,\n    _outbound: { type: 'text', body: finalBody }\n  }\n}];\n"
+      },
+      "id": "7a7577f1-c6ff-44e7-90e3-fa4f92af3a72",
+      "name": "Resolve Bienvenida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        144
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:GROQ_API_KEY}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 80, temperature: 0.7 }) }}",
+        "options": {}
+      },
+      "id": "d9eb5588-9ec6-464f-bb69-9b12fdea0081",
+      "name": "GROQ — Humanizar fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        464,
+        1056
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst ctx      = $('Build Fallback').item.json;\nconst groqResp = $input.first().json;\n\nlet aiIntro = null;\ntry {\n  aiIntro = String(groqResp?.choices?.[0]?.message?.content ?? '').trim();\n} catch (_) {}\n\nconst isValid = aiIntro &&\n  aiIntro.length >= 10 &&\n  aiIntro.length <= 200 &&\n  !/^\\d+\\./.test(aiIntro);\n\nconst finalBody = isValid\n  ? aiIntro + (ctx._menu_options ?? '')\n  : ctx._fallback_body;\n\nreturn [{\n  json: {\n    ...ctx,\n    _groq_messages: undefined,\n    _fallback_body: undefined,\n    _menu_options:  undefined,\n    _outbound: { type: 'text', body: finalBody }\n  }\n}];\n"
+      },
+      "id": "0a3bf0bb-7b45-44f7-9aa5-7dff26b9cc02",
+      "name": "Resolve Fallback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        784
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Determinar Ruta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determinar Ruta": {
+      "main": [
+        [
+          {
+            "node": "Switch Ruta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Ruta": {
+      "main": [
+        [
+          {
+            "node": "Build Welcome Menu",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-07 Patient Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-08 Catalog Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-11 Availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-12 Booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-13 Cancel/Reschedule",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-09 Intent Helper",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-10 FAQ Helper",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ CF-16 Admin Flow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Stub Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Welcome Menu": {
+      "main": [
+        [
+          {
+            "node": "Supabase — Reset session (menú)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Fallback": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Humanizar fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Stub Response": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Reset session (menú)": {
+      "main": [
+        [
+          {
+            "node": "Recover Envelope — Menú",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Envelope — Menú": {
+      "main": [
+        [
+          {
+            "node": "GROQ — Humanizar bienvenida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Humanizar bienvenida": {
+      "main": [
+        [
+          {
+            "node": "Resolve Bienvenida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Bienvenida": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GROQ — Humanizar fallback": {
+      "main": [
+        [
+          {
+            "node": "Resolve Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Fallback": {
+      "main": [
+        [
+          {
+            "node": "→ CF-14 Outbound Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": null,
+  "versionId": "ea420075-2f85-4509-a4f4-3c6ee562621a",
+  "activeVersionId": "ea420075-2f85-4509-a4f4-3c6ee562621a",
+  "versionCounter": 61,
+  "triggerCount": 0,
+  "tags": [
+    {
+      "updatedAt": "2026-03-14T19:16:23.306Z",
+      "createdAt": "2026-03-14T19:16:23.306Z",
+      "id": "6n3w2njJL8nExV6t",
+      "name": "router"
+    },
+    {
+      "updatedAt": "2026-03-13T23:51:17.617Z",
+      "createdAt": "2026-03-13T23:51:17.617Z",
+      "id": "cytIeGp0AaVk05RU",
+      "name": "clinicflow"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2026-10-29T05:33:29.587Z",
+      "createdAt": "2026-10-29T05:33:29.587Z",
+      "role": "workflow:owner",
+      "workflowId": "3LTDnXPdGt04TJSd",
+      "projectId": "SfqR12T2BMbfrPEN",
+      "project": {
+        "updatedAt": "2026-03-13T22:41:45.998Z",
+        "createdAt": "2026-03-11T20:09:40.903Z",
+        "id": "SfqR12T2BMbfrPEN",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "bf28c1aa-92be-4197-95fb-d4c97a9b1a0c"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": "Version bdd4632b",
+    "description": ""
+  }
+}
