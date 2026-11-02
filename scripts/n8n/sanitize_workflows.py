@@ -19,6 +19,9 @@ for line in open(env_path, encoding="utf-8"):
         continue
     k, v = line.split("=", 1)
     k, v = k.strip(), v.strip().strip('"').strip("'")
+    # Correos y dominios no son secretos (y así el resultado es igual en el servidor y en local)
+    if re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]{2,}", v) or k.endswith("_DOMAIN"):
+        continue
     if len(v) >= 12 and not v.startswith(("http://", "https://", "America/")):
         secrets[v] = k
 

@@ -996,7 +996,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst e = $input.first().json;\nconst name = e.user?.wa_name ?? 'Admin';\nconst bot  = e.tenant?.settings?.is_bot_enabled ? '🟢 Activo' : '🔴 Pausado';\nreturn [{ json: {\n  ...e,\n  _outbound: { type: 'text',\n    body: `⚙️ *Panel de Administración*\\nHola ${name}. Bot: ${bot}\\n\\n` +\n          `*Comandos disponibles:*\\n\\n` +\n          `📅 *agenda hoy* — Ver citas de hoy\\n` +\n          `📅 *agenda mañana* — Ver citas de mañana\\n` +\n          `📊 *estado* — Estadísticas y estado del sistema\\n` +\n          `👥 *pacientes* — Últimos pacientes registrados\\n` +\n          `⏸️ *pausar* — Desactivar el bot temporalmente\\n` +\n          `▶️ *activar* — Reactivar el bot\\n\\n` +\n          `_Escribe el comando que necesites._`\n  }\n}}];\n"
+        "jsCode": "\nconst e = $input.first().json;\nconst name = e.user?.wa_name ?? 'Admin';\nconst bot  = e.tenant?.settings?.is_bot_enabled ? '🟢 Activo' : '🔴 Pausado';\nreturn [{ json: {\n  ...e,\n  _outbound: { type: 'text',\n    body: `⚙️ *Panel de Administración*\\nHola ${name}. Bot: ${bot}\\n\\n` +\n          `*Comandos disponibles:*\\n\\n` +\n          `📅 *agenda hoy* — Ver citas de hoy\\n` +\n          `📅 *agenda mañana* — Ver citas de mañana\\n` +\n          `📊 *estado* — Estadísticas y estado del sistema\\n` +\n          `👥 *pacientes* — Últimos pacientes registrados\\n` +\n          `⏸️ *pausar* — Desactivar el bot temporalmente\\n` +\n          `▶️ *activar* — Reactivar el bot\\n\\n` +\n          `_Escribe el comando que necesites. Escribe *salir* para volver al modo normal._`\n  }\n}}];\n"
       },
       "id": "25dfc5f1-650e-4b6b-9c2c-084b7a8c84ab",
       "name": "Build Menú Ayuda",
@@ -1029,6 +1029,65 @@
         240,
         1200
       ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.session.session_id }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{REDACTED:CF_SUPABASE_SERVICE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "options": {},
+        "method": "PATCH",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ current_step: 'admin_mode', updated_at: new Date().toISOString() }) }}"
+      },
+      "id": "ef0b3b80-472c-4adc-886e-51eb6863f581",
+      "name": "Supabase — Activar modo admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1020,
+        720
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -1070,6 +1129,11 @@
         [
           {
             "node": "Build Admin Context",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Supabase — Activar modo admin",
             "type": "main",
             "index": 0
           }
@@ -1362,7 +1426,7 @@
         "updatedAt": "2026-03-13T22:41:45.998Z",
         "createdAt": "2026-03-11T20:09:40.903Z",
         "id": "SfqR12T2BMbfrPEN",
-        "name": "Cristian Sathiel Ramirez Reveles <{{REDACTED:ACME_EMAIL}}>",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
         "type": "personal",
         "icon": null,
         "description": null,

@@ -126,7 +126,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "=={{ JSON.stringify({  tenant_id:  $('Build Payload').item.json.tenant?.tenant_id,  user_wa:    $('Build Payload').item.json.user?.wa_number,  direction:  \"outbound\",  message_id: null,  payload: {    type:    $('Build Payload').item.json._outbound?.type,    body:    $('Build Payload').item.json._outbound?.body,    channel: $('Build Payload').item.json._channel ?? \"evolution\"  }\n})\n}}",
+        "body": "={{ JSON.stringify({  tenant_id:  $('Build Payload').item.json.tenant?.tenant_id,  user_wa:    $('Build Payload').item.json.user?.wa_number,  direction:  \"outbound\",  message_id: null,  payload: {    type:    $('Build Payload').item.json._outbound?.type,    body:    $('Build Payload').item.json._outbound?.body,    channel: $('Build Payload').item.json._channel ?? \"evolution\"  }\n})\n}}",
         "options": {}
       },
       "id": "6d62a1de-fe29-4ed8-9b35-9493e6ee94d3",
@@ -142,7 +142,8 @@
           "id": "9hRusUHDOrecGhUs",
           "name": "Header Auth account"
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -277,7 +278,7 @@
         "updatedAt": "2026-03-13T22:41:45.998Z",
         "createdAt": "2026-03-11T20:09:40.903Z",
         "id": "SfqR12T2BMbfrPEN",
-        "name": "Cristian Sathiel Ramirez Reveles <{{REDACTED:ACME_EMAIL}}>",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
         "type": "personal",
         "icon": null,
         "description": null,

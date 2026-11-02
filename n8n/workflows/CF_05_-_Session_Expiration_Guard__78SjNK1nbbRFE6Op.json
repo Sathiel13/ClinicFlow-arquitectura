@@ -67,7 +67,7 @@
     {
       "parameters": {
         "method": "PATCH",
-        "url": "=https://sfybvsgworojwobdrnss.supabase.co\n/rest/v1/session_state",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/session_state",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendQuery": true,
@@ -103,7 +103,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ is_expired: true, current_step: \"idle\", active_service_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {}, updated_at: new Date().toISOString() }) }}",
+        "body": "={{ JSON.stringify({ is_expired: true, current_step: \"idle\", active_service_id: null, active_patient_id: null, active_provider_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {}, updated_at: new Date().toISOString() }) }}",
         "options": {}
       },
       "id": "b1d93c5c-b947-4fe3-b23e-df74d889671b",
@@ -123,7 +123,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const envelope = $('Evaluar expiración').item.json;\nconst welcome  = envelope.tenant?.settings?.welcome_message ?? 'Hola de nuevo 👋';\nreturn [{ json: {\n  ...envelope,\n  session: { ...envelope.session, current_step: 'idle', is_expired: true,\n    active_service_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {} },\n  _outbound: {\n    type: 'buttons',\n    body: '⏰ Tu sesión anterior expiró.\\n\\n' + welcome,\n    buttons: [\n      { id: 'CF:MENU',  title: '📋 Ver menú' },\n      { id: 'CF:START', title: '🔄 Empezar'  }\n    ]\n  }\n}}];"
+        "jsCode": "const envelope = $('Evaluar expiración').item.json;\nconst welcome  = envelope.tenant?.settings?.welcome_message ?? 'Hola de nuevo 👋';\n// (B7) Si el mensaje trae texto (no solo un número de una lista vieja), se procesa en lugar de perderse.\nconst inText = String(envelope.message?.text ?? '').trim();\nconst processNow = inText.length > 0 && !/^\\d+$/.test(inText);\nif (processNow) {\n  return [{ json: {\n    ...envelope,\n    session: { ...envelope.session, current_step: 'idle', is_expired: true, active_service_id: null,\n      active_patient_id: null, active_provider_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {} },\n    patient: { ...(envelope.patient ?? {}), active_patient_id: null },\n    _after_reset: 'router',\n  }}];\n}\nreturn [{ json: {\n  _after_reset: 'notify',\n  ...envelope,\n  session: { ...envelope.session, current_step: 'idle', is_expired: true,\n    active_service_id: null, pending_slot_start: null, pending_slot_end: null, pending_context: {} },\n  _outbound: {\n    type: 'buttons',\n    body: '⏰ Tu sesión anterior expiró.\\n\\n' + welcome,\n    buttons: [\n      { id: 'CF:MENU',  title: '📋 Ver menú' },\n      { id: 'CF:START', title: '🔄 Empezar'  }\n    ]\n  }\n}}];"
       },
       "id": "e1240dd7-f957-48de-9307-4da99dfe23e5",
       "name": "Recover + Reset Envelope",
@@ -176,6 +176,40 @@
       "position": [
         0,
         288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cf05-after-reset",
+              "leftValue": "={{ $json._after_reset === 'router' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0a40a438-f254-4906-9425-d9cd9ae77fab",
+      "name": "¿Procesar mensaje tras expirar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        0
       ]
     }
   ],
@@ -235,6 +269,24 @@
       "main": [
         [
           {
+            "node": "¿Procesar mensaje tras expirar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Procesar mensaje tras expirar?": {
+      "main": [
+        [
+          {
+            "node": "→ CF-06 Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "→ CF-14 Notificar expiración",
             "type": "main",
             "index": 0
@@ -281,7 +333,7 @@
         "updatedAt": "2026-03-13T22:41:45.998Z",
         "createdAt": "2026-03-11T20:09:40.903Z",
         "id": "SfqR12T2BMbfrPEN",
-        "name": "Cristian Sathiel Ramirez Reveles <{{REDACTED:ACME_EMAIL}}>",
+        "name": "Cristian Sathiel Ramirez Reveles <ramirezsath@gmail.com>",
         "type": "personal",
         "icon": null,
         "description": null,
