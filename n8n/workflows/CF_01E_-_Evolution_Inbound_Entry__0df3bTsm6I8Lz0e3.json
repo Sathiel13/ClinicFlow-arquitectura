@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:36:09.000Z",
+  "updatedAt": "2026-11-02T16:37:34.000Z",
   "createdAt": "2026-04-20T14:29:05.610Z",
   "id": "0df3bTsm6I8Lz0e3",
   "name": "[CF] 01E - Evolution Inbound Entry",
@@ -537,13 +537,29 @@
       "messageDedup": {
         "ClinicFlow-Pruebas-Demos|{{REDACTED:PHONE}}@s.whatsapp.net|AC80B13730DD0EE7F324A2A3F38B2F3E": 1776715615443,
         "ClinicFlow-Pruebas-Demos|{{REDACTED:PHONE}}@s.whatsapp.net|ACBE357605232850F6C21909AA66F9A6": 1776715637945
+      },
+      "rl": {
+        "ClinicFlow-Pruebas-Demos|{{REDACTED:PHONE}}@s.whatsapp.net": {
+          "ts": [
+            1793638257420,
+            1793638265558
+          ],
+          "texts": [
+            {
+              "t": 1793638257420,
+              "v": "hola"
+            }
+          ],
+          "mutedUntil": 0,
+          "last": 1793638265558
+        }
       }
     }
   },
   "meta": null,
-  "versionId": "abe94227-636f-404c-aca5-952176317576",
-  "activeVersionId": "abe94227-636f-404c-aca5-952176317576",
-  "versionCounter": 80,
+  "versionId": "efe0a51e-7f54-47d6-8331-c7021604fd0c",
+  "activeVersionId": "efe0a51e-7f54-47d6-8331-c7021604fd0c",
+  "versionCounter": 85,
   "triggerCount": 1,
   "tags": [
     {

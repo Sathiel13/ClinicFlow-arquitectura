@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:37:33.000Z",
+  "updatedAt": "2026-11-02T16:37:41.000Z",
   "createdAt": "2026-04-20T14:36:56.660Z",
   "id": "ahFUcS6dBVagPpcv",
   "name": "[CF] 14E - WhatsApp Outbound Sender (Evolution)",
@@ -243,9 +243,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "96be58a9-9adb-41c2-92fa-227dde445698",
-  "activeVersionId": "96be58a9-9adb-41c2-92fa-227dde445698",
-  "versionCounter": 39,
+  "versionId": "c4459c75-6560-4b16-8ffd-6f050872475b",
+  "activeVersionId": "c4459c75-6560-4b16-8ffd-6f050872475b",
+  "versionCounter": 42,
   "triggerCount": 0,
   "tags": [
     {
