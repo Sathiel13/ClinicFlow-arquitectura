@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:38:18.000Z",
+  "updatedAt": "2026-11-12T20:18:48.000Z",
   "createdAt": "2026-04-20T15:09:32.549Z",
   "id": "vo8DMR34ff68xDnS",
   "name": "[CF] 13 - Cancel / Reschedule Processor",
@@ -647,7 +647,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0.45,\n  max_tokens: 120,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un redactor de mensajes transaccionales para WhatsApp de una clínica. Humaniza el mensaje sin alterar hechos. Reglas obligatorias: conserva EXACTAMENTE la fecha y hora dadas, no inventes información, usa español cálido y profesional, máximo 60 palabras, devuelve solo el texto final.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'cancel_confirmation'}\\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\\nFecha y hora exactas: ${$json._humanizer?.formatted_datetime ?? ''}\\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
+        "body": "={{ JSON.stringify({\n  model: 'openai/gpt-oss-120b', reasoning_effort: 'low',\n  temperature: 0.45,\n  max_tokens: 320,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un redactor de mensajes transaccionales para WhatsApp de una clínica. Humaniza el mensaje sin alterar hechos. Reglas obligatorias: conserva EXACTAMENTE la fecha y hora dadas, no inventes información, usa español cálido y profesional, máximo 60 palabras, devuelve solo el texto final.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'cancel_confirmation'}\\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\\nFecha y hora exactas: ${$json._humanizer?.formatted_datetime ?? ''}\\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
         "options": {}
       },
       "id": "909c4ed0-3341-4081-a845-4a90e43d7b60",
@@ -710,7 +710,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0.5,\n  max_tokens: 90,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un redactor de mensajes breves para WhatsApp de una clínica. Humaniza el mensaje sin cambiar la intención ni inventar información. Usa español cálido y profesional, máximo 35 palabras, devuelve solo el texto final.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'reschedule_bridge'}\\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
+        "body": "={{ JSON.stringify({\n  model: 'openai/gpt-oss-120b', reasoning_effort: 'low',\n  temperature: 0.5,\n  max_tokens: 290,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un redactor de mensajes breves para WhatsApp de una clínica. Humaniza el mensaje sin cambiar la intención ni inventar información. Usa español cálido y profesional, máximo 35 palabras, devuelve solo el texto final.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'reschedule_bridge'}\\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
         "options": {}
       },
       "id": "afd176df-4365-4e05-9627-5a83694ffe7a",
@@ -1065,9 +1065,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "e7739dfe-405f-4ed0-b4e8-8594940fd896",
-  "activeVersionId": "e7739dfe-405f-4ed0-b4e8-8594940fd896",
-  "versionCounter": 46,
+  "versionId": "49c9866a-53d0-45ad-a90f-2f3777b6ac54",
+  "activeVersionId": "49c9866a-53d0-45ad-a90f-2f3777b6ac54",
+  "versionCounter": 50,
   "triggerCount": 0,
   "tags": [
     {

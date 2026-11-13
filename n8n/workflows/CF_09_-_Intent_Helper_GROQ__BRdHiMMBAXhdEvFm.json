@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:36:48.000Z",
+  "updatedAt": "2026-11-12T20:18:17.000Z",
   "createdAt": "2026-04-20T15:11:42.064Z",
   "id": "BRdHiMMBAXhdEvFm",
   "name": "[CF] 09 - Intent Helper (GROQ)",
@@ -50,7 +50,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({\n  model: 'llama-3.1-8b-instant',\n  messages: $json._groq_messages,\n  max_tokens: 150,\n  temperature: 0.1,\n  response_format: { type: 'json_object' }\n}) }}",
+        "body": "={{ JSON.stringify({\n  model: 'openai/gpt-oss-20b', reasoning_effort: 'low',\n  messages: $json._groq_messages,\n  max_tokens: 350,\n  temperature: 0.1,\n  response_format: { type: 'json_object' }\n}) }}",
         "options": {}
       },
       "id": "ef874902-ac14-48b8-9810-855921d56284",
@@ -395,9 +395,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "24298486-1cea-4d9b-a22c-a68150eff68f",
-  "activeVersionId": "24298486-1cea-4d9b-a22c-a68150eff68f",
-  "versionCounter": 30,
+  "versionId": "e4b92869-52a0-4e10-a4fa-941ab0089f1a",
+  "activeVersionId": "e4b92869-52a0-4e10-a4fa-941ab0089f1a",
+  "versionCounter": 34,
   "triggerCount": 0,
   "tags": [
     {

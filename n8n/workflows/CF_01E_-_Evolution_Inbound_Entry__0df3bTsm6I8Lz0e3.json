@@ -541,17 +541,25 @@
       "rl": {
         "ClinicFlow-Pruebas-Demos|{{REDACTED:PHONE}}@s.whatsapp.net": {
           "ts": [
-            1793638257420,
-            1793638265558
+            1794515696591,
+            1794515718669
           ],
           "texts": [
             {
-              "t": 1793638257420,
+              "t": 1794515607614,
               "v": "hola"
+            },
+            {
+              "t": 1794515623224,
+              "v": "pediatria"
+            },
+            {
+              "t": 1794515696591,
+              "v": "juan ramos marquez"
             }
           ],
           "mutedUntil": 0,
-          "last": 1793638265558
+          "last": 1794515718669
         }
       }
     }
@@ -559,7 +567,7 @@
   "meta": null,
   "versionId": "efe0a51e-7f54-47d6-8331-c7021604fd0c",
   "activeVersionId": "efe0a51e-7f54-47d6-8331-c7021604fd0c",
-  "versionCounter": 85,
+  "versionCounter": 101,
   "triggerCount": 1,
   "tags": [
     {

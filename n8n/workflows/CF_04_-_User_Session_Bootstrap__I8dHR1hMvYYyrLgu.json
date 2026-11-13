@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:37:10.000Z",
+  "updatedAt": "2026-11-12T20:27:44.000Z",
   "createdAt": "2026-04-20T14:35:16.694Z",
   "id": "I8dHR1hMvYYyrLgu",
   "name": "[CF] 04 - User & Session Bootstrap",
@@ -77,7 +77,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// PostgREST con return=representation devuelve array\n// Extraemos user_id y lo mergeamos con el envelope original\nconst envelope = $('Execute Workflow Trigger').item.json;\nconst raw      = $input.first().json;\nconst user     = Array.isArray(raw) ? raw[0] : raw;\n\nreturn [{\n  json: {\n    ...envelope,\n    user: {\n      ...envelope.user,\n      user_id: user.id\n    },\n    _user_row: user\n  }\n}];"
+        "jsCode": "// PostgREST con return=representation devuelve array\n// Extraemos user_id y lo mergeamos con el envelope original\nconst envelope = $('Execute Workflow Trigger').item.json;\nconst raw      = $input.first().json;\nconst user     = Array.isArray(raw) ? raw[0] : raw;\n\nreturn [{\n  json: {\n    ...envelope,\n    user: {\n      ...envelope.user,\n      user_id: user.id,\n      wa_jid: user.wa_jid ?? null\n    },\n    _user_row: user\n  }\n}];"
       },
       "id": "7fa7eaae-333f-4c6f-a236-7164ed40351f",
       "name": "Recover user_id",
@@ -480,9 +480,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "9d5adf9e-2198-4004-ad2b-d6fcaf9bf4af",
-  "activeVersionId": "9d5adf9e-2198-4004-ad2b-d6fcaf9bf4af",
-  "versionCounter": 30,
+  "versionId": "51d3e1f5-e8f9-4435-b84c-88fb6cdc7b7a",
+  "activeVersionId": "51d3e1f5-e8f9-4435-b84c-88fb6cdc7b7a",
+  "versionCounter": 34,
   "triggerCount": 0,
   "tags": [
     {

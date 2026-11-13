@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:38:10.000Z",
+  "updatedAt": "2026-11-12T20:18:43.000Z",
   "createdAt": "2026-04-20T15:06:00.955Z",
   "id": "tv7WUNmbxaxGvWSN",
   "name": "[CF] 08 - Catalog Engine",
@@ -356,7 +356,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 200, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
+        "body": "={{ JSON.stringify({ model: 'openai/gpt-oss-20b', reasoning_effort: 'low', messages: $json._groq_messages, max_tokens: 400, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
         "options": {}
       },
       "id": "f46c882d-8176-4b75-82f3-aee3bf131095",
@@ -552,9 +552,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "9f8a27ab-30b1-4864-b78f-89d3737890fc",
-  "activeVersionId": "9f8a27ab-30b1-4864-b78f-89d3737890fc",
-  "versionCounter": 62,
+  "versionId": "9a21b2d5-5d7d-4b0e-9d96-5763f33e34bc",
+  "activeVersionId": "9a21b2d5-5d7d-4b0e-9d96-5763f33e34bc",
+  "versionCounter": 66,
   "triggerCount": 0,
   "tags": [
     {

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-02T16:37:44.000Z",
+  "updatedAt": "2026-11-12T20:18:38.000Z",
   "createdAt": "2026-04-20T15:00:18.242Z",
   "id": "tGp3irtUKdygpZGg",
   "name": "[CF] 16 - Admin Flow",
@@ -197,7 +197,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages ?? [], max_tokens: 80, temperature: 0.5 }) }}",
+        "body": "={{ JSON.stringify({ model: 'openai/gpt-oss-20b', reasoning_effort: 'low', messages: $json._groq_messages ?? [], max_tokens: 280, temperature: 0.5 }) }}",
         "options": {}
       },
       "id": "bd33a58d-ad4d-4309-a7c7-e5802c59e77c",
@@ -1397,9 +1397,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "2bb5871f-94c1-47f9-acc8-91f7092548a3",
-  "activeVersionId": "2bb5871f-94c1-47f9-acc8-91f7092548a3",
-  "versionCounter": 64,
+  "versionId": "830cda89-15ff-4027-80d1-5e58c666cdbf",
+  "activeVersionId": "830cda89-15ff-4027-80d1-5e58c666cdbf",
+  "versionCounter": 68,
   "triggerCount": 0,
   "tags": [
     {

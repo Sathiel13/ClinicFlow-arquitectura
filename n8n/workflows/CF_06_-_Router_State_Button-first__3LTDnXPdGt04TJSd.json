@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-02T16:37:37.000Z",
+  "updatedAt": "2026-11-12T20:18:07.000Z",
   "createdAt": "2026-04-20T14:36:25.775Z",
   "id": "3LTDnXPdGt04TJSd",
   "name": "[CF] 06 - Router (State + Button-first)",
@@ -641,7 +641,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 100, temperature: 0.65 }) }}",
+        "body": "={{ JSON.stringify({ model: 'openai/gpt-oss-20b', reasoning_effort: 'low', messages: $json._groq_messages, max_tokens: 300, temperature: 0.65 }) }}",
         "options": {}
       },
       "id": "ca4a5100-0138-4900-b251-20d394618904",
@@ -692,7 +692,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 80, temperature: 0.7 }) }}",
+        "body": "={{ JSON.stringify({ model: 'openai/gpt-oss-20b', reasoning_effort: 'low', messages: $json._groq_messages, max_tokens: 280, temperature: 0.7 }) }}",
         "options": {}
       },
       "id": "d9eb5588-9ec6-464f-bb69-9b12fdea0081",
@@ -939,9 +939,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "efe61ef0-8062-4be4-803c-01f31ad4f4d5",
-  "activeVersionId": "efe61ef0-8062-4be4-803c-01f31ad4f4d5",
-  "versionCounter": 64,
+  "versionId": "e1645b5d-62cf-4a94-8f3e-5b0bdbd91053",
+  "activeVersionId": "e1645b5d-62cf-4a94-8f3e-5b0bdbd91053",
+  "versionCounter": 68,
   "triggerCount": 0,
   "tags": [
     {

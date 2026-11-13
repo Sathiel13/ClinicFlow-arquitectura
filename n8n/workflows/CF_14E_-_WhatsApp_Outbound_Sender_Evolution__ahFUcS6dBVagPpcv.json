@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-02T16:37:41.000Z",
+  "updatedAt": "2026-11-12T20:27:55.000Z",
   "createdAt": "2026-04-20T14:36:56.660Z",
   "id": "ahFUcS6dBVagPpcv",
   "name": "[CF] 14E - WhatsApp Outbound Sender (Evolution)",
@@ -168,6 +168,104 @@
         0,
         288
       ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://clinicflow-evolution:8080/chat/findMessages/{{ $json.tenant?.evo_instance_name }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.CF_EVO_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ where: { key: { id: $json.message?.message_id || 'sin-id' } } }) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "5257b410-e509-4583-9f07-fa7074442acb",
+      "name": "Evolution — Buscar LID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        -220
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// WhatsApp identifica a muchos contactos con un LID (\"123...@lid\").\n// Evolution v2.3.7 no entrega los envíos al número de esos contactos, pero sí al LID.\nconst e = $('Build Payload').first().json;\nconst r = $input.first().json || {};\nconst recs = r?.messages?.records || [];\nconst found = recs.map(m => m?.key?.remoteJid).find(j => typeof j === 'string' && j.endsWith('@lid')) || null;\nconst known = e.user?.wa_jid || null;\nconst to = found || known || e._payload.number;\nreturn [{ json: {\n  ...e,\n  _payload: { ...e._payload, number: to },\n  _save_jid: (found && found !== known && e.user?.user_id) ? found : null,\n} }];\n"
+      },
+      "id": "b8d8ea55-d0de-444c-9f6a-58d775de8cab",
+      "name": "Resolver destino (LID)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://sfybvsgworojwobdrnss.supabase.co/rest/v1/users?id=eq.{{ $('Resolver destino (LID)').first().json._save_jid ? $('Resolver destino (LID)').first().json.user.user_id : '00000000-0000-0000-0000-000000000000' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.CF_SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CF_SUPABASE_SERVICE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ wa_jid: $('Resolver destino (LID)').first().json._save_jid }) }}",
+        "options": {}
+      },
+      "id": "69f77aa7-d74d-4e6f-8844-de7c8c7dfa96",
+      "name": "Supabase — Guardar LID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "9hRusUHDOrecGhUs",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -197,7 +295,7 @@
       "main": [
         [
           {
-            "node": "Evolution API — Send",
+            "node": "Evolution — Buscar LID",
             "type": "main",
             "index": 0
           }
@@ -226,6 +324,39 @@
       "main": [
         [
           {
+            "node": "Supabase — Guardar LID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evolution — Buscar LID": {
+      "main": [
+        [
+          {
+            "node": "Resolver destino (LID)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver destino (LID)": {
+      "main": [
+        [
+          {
+            "node": "Evolution API — Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase — Guardar LID": {
+      "main": [
+        [
+          {
             "node": "Recover Envelope",
             "type": "main",
             "index": 0
@@ -243,9 +374,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "c4459c75-6560-4b16-8ffd-6f050872475b",
-  "activeVersionId": "c4459c75-6560-4b16-8ffd-6f050872475b",
-  "versionCounter": 42,
+  "versionId": "24ba18e9-a051-49c1-b386-6ab15106067a",
+  "activeVersionId": "24ba18e9-a051-49c1-b386-6ab15106067a",
+  "versionCounter": 46,
   "triggerCount": 0,
   "tags": [
     {

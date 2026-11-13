@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:43:17.000Z",
+  "updatedAt": "2026-11-12T20:27:50.000Z",
   "createdAt": "2026-04-21T21:03:56.836Z",
   "id": "UBvE1gzVINp72g4l",
   "name": "[CF] 15 - Reminder System",
@@ -242,7 +242,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 180, temperature: 0.5 }) }}",
+        "body": "={{ JSON.stringify({ model: 'openai/gpt-oss-20b', reasoning_effort: 'low', messages: $json._groq_messages, max_tokens: 380, temperature: 0.5 }) }}",
         "options": {}
       },
       "id": "274bbb16-67bc-4741-8b20-5094e20ce7ce",
@@ -596,7 +596,7 @@
             },
             {
               "name": "select",
-              "value": "id,wa_number,wa_name"
+              "value": "id,wa_number,wa_jid,wa_name"
             },
             {
               "name": "limit",
@@ -641,7 +641,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// Todo el contexto ya está en $input gracias a la cadena de Enrich\nconst ctx = $('Enrich con Settings').item.json;\nconst raw = $input.first().json;  // GET User response\nconst user = Array.isArray(raw) ? raw[0] : (raw?.id ? raw : {});\n\nconst waNumber    = user?.wa_number    ?? null;\nconst evoInstance = ctx._tenant_evo   ?? null;\n\n// Si no hay número o instancia, marcar para saltarse el envío\nif (!waNumber || !evoInstance || !ctx._bot_enabled || !ctx._tenant_active) {\n  return [{\n    json: {\n      ...ctx,\n      _wa_number:    waNumber,\n      _evo_instance: evoInstance,\n      _skip_send:    true,\n      _skip_reason:  !ctx._tenant_active ? 'tenant_paused'\n                   : !ctx._bot_enabled ? 'bot_disabled'\n                   : !waNumber ? 'no_wa_number'\n                   : 'no_evo_instance'\n    }\n  }];\n}\n\nconst tz  = ctx._tenant_timezone ?? 'America/Mexico_City';\nconst dt  = new Date(ctx._start_at);\nconst fmt = dt.toLocaleString('es-MX', {\n  timeZone: tz, weekday: 'long', day: 'numeric',\n  month: 'long', hour: '2-digit', minute: '2-digit', hour12: true\n});\n\nconst clinicName  = ctx._tenant_name;\nconst patientName = ctx._patient_name;\nconst serviceName = ctx._service_name;\nconst clinicPhone = ctx._phone_contact;\n\nconst baseMsg = ctx._reminder_type === '24h'\n  ? `Hola ${patientName} 👋 Te recordamos que *mañana* tienes cita de *${serviceName}* en *${clinicName}*.\\n\\n📅 ${fmt}\\n\\nSi necesitas cancelar o reagendar escribe *cancelar* o *reagendar*.`\n  : `Hola ${patientName} ⏰ Tu cita de *${serviceName}* en *${clinicName}* es *en 2 horas*.\\n\\n📅 ${fmt}\\n\\n¡Te esperamos! 😊`;\n\nconst systemPrompt =\n  `Eres el asistente de ${clinicName} redactando un recordatorio de cita por WhatsApp. ` +\n  `Humaniza el siguiente mensaje haciéndolo más cálido y natural. REGLAS ESTRICTAS:\\n` +\n  `- Conserva EXACTAMENTE: fecha, hora, nombre del paciente y nombre del servicio\\n` +\n  `- NO agregues información que no esté en el mensaje original\\n` +\n  `- Máximo 4 líneas + emojis apropiados. Tono: amigable, como una recepcionista real\\n` +\n  (clinicPhone ? `- Puedes mencionar el teléfono ${clinicPhone} como contacto de urgencias\\n` : '') +\n  `- Responde SOLO con el mensaje final, sin explicaciones ni comillas`;\n\nreturn [{\n  json: {\n    ...ctx,\n    _wa_number:      waNumber,\n    _evo_instance:   evoInstance,\n    _skip_send:      false,\n    _base_message:   baseMsg,\n    _fmt_datetime:   fmt,\n    _groq_messages:  [\n      { role: 'system', content: systemPrompt },\n      { role: 'user',   content: baseMsg }\n    ]\n  }\n}];\n"
+        "jsCode": "\n// Todo el contexto ya está en $input gracias a la cadena de Enrich\nconst ctx = $('Enrich con Settings').item.json;\nconst raw = $input.first().json;  // GET User response\nconst user = Array.isArray(raw) ? raw[0] : (raw?.id ? raw : {});\n\nconst waNumber    = user?.wa_jid || user?.wa_number || null;  // LID si existe\nconst evoInstance = ctx._tenant_evo   ?? null;\n\n// Si no hay número o instancia, marcar para saltarse el envío\nif (!waNumber || !evoInstance || !ctx._bot_enabled || !ctx._tenant_active) {\n  return [{\n    json: {\n      ...ctx,\n      _wa_number:    waNumber,\n      _evo_instance: evoInstance,\n      _skip_send:    true,\n      _skip_reason:  !ctx._tenant_active ? 'tenant_paused'\n                   : !ctx._bot_enabled ? 'bot_disabled'\n                   : !waNumber ? 'no_wa_number'\n                   : 'no_evo_instance'\n    }\n  }];\n}\n\nconst tz  = ctx._tenant_timezone ?? 'America/Mexico_City';\nconst dt  = new Date(ctx._start_at);\nconst fmt = dt.toLocaleString('es-MX', {\n  timeZone: tz, weekday: 'long', day: 'numeric',\n  month: 'long', hour: '2-digit', minute: '2-digit', hour12: true\n});\n\nconst clinicName  = ctx._tenant_name;\nconst patientName = ctx._patient_name;\nconst serviceName = ctx._service_name;\nconst clinicPhone = ctx._phone_contact;\n\nconst baseMsg = ctx._reminder_type === '24h'\n  ? `Hola ${patientName} 👋 Te recordamos que *mañana* tienes cita de *${serviceName}* en *${clinicName}*.\\n\\n📅 ${fmt}\\n\\nSi necesitas cancelar o reagendar escribe *cancelar* o *reagendar*.`\n  : `Hola ${patientName} ⏰ Tu cita de *${serviceName}* en *${clinicName}* es *en 2 horas*.\\n\\n📅 ${fmt}\\n\\n¡Te esperamos! 😊`;\n\nconst systemPrompt =\n  `Eres el asistente de ${clinicName} redactando un recordatorio de cita por WhatsApp. ` +\n  `Humaniza el siguiente mensaje haciéndolo más cálido y natural. REGLAS ESTRICTAS:\\n` +\n  `- Conserva EXACTAMENTE: fecha, hora, nombre del paciente y nombre del servicio\\n` +\n  `- NO agregues información que no esté en el mensaje original\\n` +\n  `- Máximo 4 líneas + emojis apropiados. Tono: amigable, como una recepcionista real\\n` +\n  (clinicPhone ? `- Puedes mencionar el teléfono ${clinicPhone} como contacto de urgencias\\n` : '') +\n  `- Responde SOLO con el mensaje final, sin explicaciones ni comillas`;\n\nreturn [{\n  json: {\n    ...ctx,\n    _wa_number:      waNumber,\n    _evo_instance:   evoInstance,\n    _skip_send:      false,\n    _base_message:   baseMsg,\n    _fmt_datetime:   fmt,\n    _groq_messages:  [\n      { role: 'system', content: systemPrompt },\n      { role: 'user',   content: baseMsg }\n    ]\n  }\n}];\n"
       },
       "id": "fa46ff10-b916-49be-8880-c419423c2206",
       "name": "Build & Send Reminder",
@@ -1041,9 +1041,9 @@
     }
   },
   "meta": null,
-  "versionId": "6fc164a0-8a44-49be-ae51-98ae5ce1ae3d",
-  "activeVersionId": "6fc164a0-8a44-49be-ae51-98ae5ce1ae3d",
-  "versionCounter": 29,
+  "versionId": "e7828936-515f-404c-a80b-8ab0cb62f025",
+  "activeVersionId": "e7828936-515f-404c-a80b-8ab0cb62f025",
+  "versionCounter": 35,
   "triggerCount": 1,
   "tags": [
     {

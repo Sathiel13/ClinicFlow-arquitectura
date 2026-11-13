@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:43:02.000Z",
+  "updatedAt": "2026-11-12T20:18:53.000Z",
   "createdAt": "2026-04-20T15:08:29.559Z",
   "id": "wCjeF0Xd7vUXZq7c",
   "name": "[CF] 12 - Booking Processor (Cal.com + Supabase)",
@@ -328,7 +328,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0.75,\n  max_tokens: 220,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un asistente de WhatsApp para una clínica médica. Tu tarea es redactar mensajes de confirmación de cita que suenen cálidos, humanos, profesionales y confiables. Debes conservar EXACTAMENTE la fecha y hora proporcionadas y no inventar ningún dato de la cita. Puedes mejorar el tono, hacer que el mensaje se sienta más cercano y agregar una breve recomendación general y segura, por ejemplo sobre puntualidad o llegar unos minutos antes. No des consejos médicos específicos, no hables de diagnósticos ni medicamentos, no exageres, no uses lenguaje robótico. El mensaje debe sentirse premium, natural y amable. Máximo 110 palabras. Devuelve solo el texto final, sin comillas, sin explicación y sin encabezados técnicos.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'booking_confirmation'}\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\nPaciente: ${$json._humanizer?.patient_name ?? $json._patient_name ?? $json.user?.wa_name ?? 'Paciente'}\nServicio: ${$json._humanizer?.service_name ?? $json._service_name ?? 'Consulta'}\\nMédico: ${$json._humanizer?.provider_name ?? $json._provider_name ?? ''}\nFecha y hora exactas: ${$json._humanizer?.formatted_datetime ?? ''}\nPolítica de cancelación: ${$json._humanizer?.cancellation_policy ?? $json.tenant?.settings?.cancellation_policy ?? 'Si necesitas mover tu cita, puedes escribir cancelar o reagendar.'}\nObjetivo: redactar un mensaje más humano y agradable para WhatsApp sin cambiar los hechos.\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
+        "body": "={{ JSON.stringify({\n  model: 'openai/gpt-oss-120b', reasoning_effort: 'low',\n  temperature: 0.75,\n  max_tokens: 420,\n  messages: [\n    {\n      role: 'system',\n      content: 'Eres un asistente de WhatsApp para una clínica médica. Tu tarea es redactar mensajes de confirmación de cita que suenen cálidos, humanos, profesionales y confiables. Debes conservar EXACTAMENTE la fecha y hora proporcionadas y no inventar ningún dato de la cita. Puedes mejorar el tono, hacer que el mensaje se sienta más cercano y agregar una breve recomendación general y segura, por ejemplo sobre puntualidad o llegar unos minutos antes. No des consejos médicos específicos, no hables de diagnósticos ni medicamentos, no exageres, no uses lenguaje robótico. El mensaje debe sentirse premium, natural y amable. Máximo 110 palabras. Devuelve solo el texto final, sin comillas, sin explicación y sin encabezados técnicos.'\n    },\n    {\n      role: 'user',\n      content: `Operación: ${$json._humanizer?.operation ?? 'booking_confirmation'}\nClínica: ${$json._humanizer?.clinic_name ?? 'la clínica'}\nUsuario: ${$json._humanizer?.user_name ?? 'Paciente'}\nPaciente: ${$json._humanizer?.patient_name ?? $json._patient_name ?? $json.user?.wa_name ?? 'Paciente'}\nServicio: ${$json._humanizer?.service_name ?? $json._service_name ?? 'Consulta'}\\nMédico: ${$json._humanizer?.provider_name ?? $json._provider_name ?? ''}\nFecha y hora exactas: ${$json._humanizer?.formatted_datetime ?? ''}\nPolítica de cancelación: ${$json._humanizer?.cancellation_policy ?? $json.tenant?.settings?.cancellation_policy ?? 'Si necesitas mover tu cita, puedes escribir cancelar o reagendar.'}\nObjetivo: redactar un mensaje más humano y agradable para WhatsApp sin cambiar los hechos.\nMensaje base: ${$json._humanizer?.base_message ?? ''}`\n    }\n  ]\n}) }}",
         "options": {}
       },
       "id": "9b8c9572-159c-458d-9357-ad3117db7502",
@@ -569,9 +569,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "cc366010-453f-43e5-b505-18baaf6c60de",
-  "activeVersionId": "cc366010-453f-43e5-b505-18baaf6c60de",
-  "versionCounter": 32,
+  "versionId": "34acc0db-6550-4748-a403-46ae758a858b",
+  "activeVersionId": "34acc0db-6550-4748-a403-46ae758a858b",
+  "versionCounter": 36,
   "triggerCount": 0,
   "tags": [
     {

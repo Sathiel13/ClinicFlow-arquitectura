@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:37:18.000Z",
+  "updatedAt": "2026-11-12T20:18:28.000Z",
   "createdAt": "2026-04-20T15:12:16.136Z",
   "id": "M5CToAdeEBxfYnvz",
   "name": "[CF] 10 - FAQ Helper (GROQ + tenant context)",
@@ -49,7 +49,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({\n  model: 'llama-3.3-70b-versatile',\n  messages: $json._groq_messages,\n  max_tokens: 600,\n  temperature: 0.5\n}) }}",
+        "body": "={{ JSON.stringify({\n  model: 'openai/gpt-oss-120b', reasoning_effort: 'low',\n  messages: $json._groq_messages,\n  max_tokens: 800,\n  temperature: 0.5\n}) }}",
         "options": {}
       },
       "id": "6eb41dad-33cc-4c3e-b74a-8fd975bb2795",
@@ -159,9 +159,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "ee8bdcbf-98bc-4e29-a357-fc70c079ba0c",
-  "activeVersionId": "ee8bdcbf-98bc-4e29-a357-fc70c079ba0c",
-  "versionCounter": 26,
+  "versionId": "3c435171-c6ff-465d-bd36-aa7ef4117582",
+  "activeVersionId": "3c435171-c6ff-465d-bd36-aa7ef4117582",
+  "versionCounter": 30,
   "triggerCount": 0,
   "tags": [
     {

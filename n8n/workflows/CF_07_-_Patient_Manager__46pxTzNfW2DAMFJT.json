@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:36:25.000Z",
+  "updatedAt": "2026-11-12T20:18:12.000Z",
   "createdAt": "2026-04-20T15:04:29.767Z",
   "id": "46pxTzNfW2DAMFJT",
   "name": "[CF] 07 - Patient Manager",
@@ -448,7 +448,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 200, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
+        "body": "={{ JSON.stringify({ model: 'openai/gpt-oss-20b', reasoning_effort: 'low', messages: $json._groq_messages, max_tokens: 400, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
         "options": {}
       },
       "id": "0d7dd2ab-eca1-4d70-b76f-124ea032eefa",
@@ -695,9 +695,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "0a48b7a5-2837-4978-bbf0-b2fce0316145",
-  "activeVersionId": "0a48b7a5-2837-4978-bbf0-b2fce0316145",
-  "versionCounter": 40,
+  "versionId": "11fd55ee-f7de-4485-b300-71b523344c28",
+  "activeVersionId": "11fd55ee-f7de-4485-b300-71b523344c28",
+  "versionCounter": 44,
   "triggerCount": 0,
   "tags": [
     {

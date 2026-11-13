@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-29T05:36:55.000Z",
+  "updatedAt": "2026-11-12T20:18:23.000Z",
   "createdAt": "2026-04-20T15:07:13.013Z",
   "id": "FZhU5iobUVOHPOEG",
   "name": "[CF] 11 - Availability Engine (Cal.com)",
@@ -318,7 +318,7 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ JSON.stringify({ model: 'llama-3.1-8b-instant', messages: $json._groq_messages, max_tokens: 200, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
+        "body": "={{ JSON.stringify({ model: 'openai/gpt-oss-20b', reasoning_effort: 'low', messages: $json._groq_messages, max_tokens: 400, temperature: 0.1, response_format: { type: 'json_object' } }) }}",
         "options": {}
       },
       "id": "cc34828c-d7c9-4927-b2d0-12d046aa163c",
@@ -860,9 +860,9 @@
   },
   "staticData": null,
   "meta": null,
-  "versionId": "7dc8a738-afc7-414d-934b-638403486784",
-  "activeVersionId": "7dc8a738-afc7-414d-934b-638403486784",
-  "versionCounter": 42,
+  "versionId": "91cdc1f4-3455-460c-ab6c-d1b2d0c4ee21",
+  "activeVersionId": "91cdc1f4-3455-460c-ab6c-d1b2d0c4ee21",
+  "versionCounter": 46,
   "triggerCount": 0,
   "tags": [
     {
